@@ -1,0 +1,150 @@
+import asyncio
+import html
+import logging
+
+from aiogram import Bot
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+
+import config
+import db
+from texts import money, t
+from ui import btn, kb
+
+
+def final_price(u, price):
+    """Цена с учётом активного промокода пользователя -> (цена, процент, код)."""
+    pct = u["promo_percent"] or 0
+    code = u["promo_code"] if pct else None
+    return round(price * (100 - pct) / 100, 2), pct, code
+
+
+async def safe_send(bot: Bot, chat_id, text, markup=None):
+    try:
+        await bot.send_message(chat_id, text, reply_markup=markup)
+        return True
+    except Exception as e:
+        logging.info("send to %s failed: %s", chat_id, e)
+        return False
+
+
+async def to_admins(bot: Bot, text, markup=None):
+    for aid in config.ADMINS:
+        await safe_send(bot, aid, text, markup)
+
+
+def user_link(u):
+    name = html.escape(u["first_name"] or "user") if u else "user"
+    uname = f" (@{u['username']})" if u and u["username"] else ""
+    uid = u["id"] if u else "?"
+    return f'<a href="tg://user?id={uid}">{name}</a>{uname} <code>{uid}</code>'
+
+
+def _lang(uid):
+    u = db.get_user(uid)
+    return u["lang"] if u else "ru"
+
+
+def _menu_kb(lang):
+    return kb([[btn("my_orders", lang, "ord:m:0")], [btn("main_menu", lang, "menu")]])
+
+
+async def fulfill(bot: Bot, oid):
+    """Заказ оплачен — выдаём товар. Возвращает итоговый статус: done / manual / refunded."""
+    o = db.order(oid)
+    uid = o["user_id"]
+    lang = _lang(uid)
+    p = db.product(o["product_id"])
+
+    # промокод израсходован
+    if o["promo_code"]:
+        u = db.get_user(uid)
+        if u and u["promo_code"] == o["promo_code"]:
+            db.update_user(uid, promo_code=None, promo_percent=0)
+
+    if p is not None and p["kind"] == "manual":
+        db.set_order(oid, status="manual")
+        await safe_send(bot, uid, t("order_manual", lang, oid=oid), _menu_kb(lang))
+        await to_admins(
+            bot,
+            f"🛠 <b>Заказ #{oid} ждёт ручной выдачи</b>\n\n📦 {html.escape(o['product_name'])}\n💰 {money(o['price'])}\n"
+            f"👤 {user_link(db.get_user(uid))}",
+            InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✉️ Выдать товар", callback_data=f"a:dlv:{oid}")]]),
+        )
+        await reward_referrer(bot, o)
+        return "manual"
+
+    qty = o["qty"] or 1
+    items = db.take_items(o["product_id"], oid, qty) if p is not None else None
+    content = None
+    if items:
+        sep = "\n\n" if any("\n" in i for i in items) else "\n"
+        content = sep.join(items)
+    if content is None:
+        db.add_balance(uid, o["price"])
+        db.set_order(oid, status="refunded")
+        await safe_send(bot, uid, t("order_refunded", lang, oid=oid, price=money(o["price"])), _menu_kb(lang))
+        await to_admins(bot, f"⚠️ Заказ #{oid}: товар «{html.escape(o['product_name'])}» закончился, "
+                             f"{money(o['price'])} возвращено на баланс покупателя.")
+        return "refunded"
+
+    await deliver(bot, oid, content)
+    await reward_referrer(bot, o)
+    return "done"
+
+
+async def deliver(bot: Bot, oid, content):
+    o = db.order(oid)
+    db.set_order(oid, status="done", content=content)
+    lang = _lang(o["user_id"])
+    text = t("order_delivered", lang, oid=oid, name=html.escape(o["product_name"]), content=html.escape(content))
+    if len(text) <= 4000:
+        await safe_send(bot, o["user_id"], text, _menu_kb(lang))
+        return
+    # много позиций не влезают в одно сообщение — отправляем файлом
+    head = t("order_delivered_file", lang, oid=oid, name=html.escape(o["product_name"]))
+    try:
+        await bot.send_document(o["user_id"], BufferedInputFile(content.encode("utf-8"), f"order_{oid}.txt"),
+                                caption=head, reply_markup=_menu_kb(lang))
+    except Exception as e:
+        logging.warning("не удалось отправить файл заказа %s: %s", oid, e)
+
+
+
+async def reward_referrer(bot: Bot, o):
+    u = db.get_user(o["user_id"])
+    rid = u["referrer_id"] if u else None
+    if not rid or not db.get_user(rid):
+        return
+    pct = float(db.get_setting("ref_percent", config.REF_PERCENT))
+    amount = round(o["price"] * pct / 100, 2)
+    if amount <= 0:
+        return
+    db.add_ref_balance(rid, amount)
+    await safe_send(bot, rid, t("ref_bonus", _lang(rid), amount=money(amount)))
+
+
+async def notify_arrival(bot: Bot, pid):
+    p = db.product(pid)
+    if not p:
+        return 0
+    n = 0
+    for uid in db.pop_notify(pid):
+        lang = _lang(uid)
+        markup = kb([[btn("buy", lang, f"p:{pid}:new")], [btn("main_menu", lang, "menu")]])
+        if await safe_send(bot, uid, t("notify_arrived", lang, name=html.escape(p["name"])), markup):
+            n += 1
+        await asyncio.sleep(0.05)
+    return n
+
+
+async def broadcast(bot: Bot, ids, send, report_to):
+    """send — корутина-функция (bot, uid), отправляющая сообщение одному пользователю."""
+    ok = fail = 0
+    for uid in ids:
+        try:
+            await send(bot, uid)
+            ok += 1
+        except Exception:
+            fail += 1
+        await asyncio.sleep(0.05)
+    await safe_send(bot, report_to, f"📢 Рассылка завершена\n\n✅ Доставлено: {ok}\n❌ Не доставлено: {fail}")
