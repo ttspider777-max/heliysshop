@@ -1,0 +1,14 @@
+meta:
+  environment: python
+  toolchain:
+    name: pip
+    version: 3.11
+
+build:
+  requirementsPath: requirements.txt
+
+run:
+  scriptName: main.py
+  # постоянное хранилище: база сохраняется в /data/heliys_shop.db
+  persistenceMount: /data
+  containerPort: 80
