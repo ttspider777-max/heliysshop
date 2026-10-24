@@ -257,6 +257,7 @@ def delete_product(pid):
     x("DELETE FROM favorites WHERE product_id=?", (pid,))
     x("DELETE FROM views WHERE product_id=?", (pid,))
     x("DELETE FROM notify WHERE product_id=?", (pid,))
+    set_infinite(pid, None)
 
 
 def stock(pid):
@@ -266,9 +267,25 @@ def stock(pid):
     return val("SELECT COUNT(*) FROM items WHERE product_id=? AND sold=0", (pid,))
 
 
+def dec_ext_stock(pid, n):
+    """После продажи товара внешнего магазина уменьшаем известный остаток (-1 «не сообщает» не трогаем)."""
+    x("UPDATE products SET ext_stock=MAX(ext_stock-?, 0) WHERE id=? AND ext_stock>0", (n, pid))
+
+
+def inf_content(pid):
+    """Содержимое «бесконечного» товара (одно и то же выдаётся каждому покупателю) или None."""
+    return get_setting(f"inf:{pid}") or None
+
+
+def set_infinite(pid, content):
+    """Включает бесконечную выдачу content для товара; None — выключает."""
+    set_setting(f"inf:{pid}", content or None)
+
+
 def unlimited(p):
-    """Товар без счётчика остатка: ручная выдача или внешний магазин, не сообщивший остаток (ext_stock < 0)."""
-    return p["kind"] == "manual" or (p["kind"] == "ext" and (p["ext_stock"] or 0) < 0)
+    """Товар без счётчика остатка: ручная выдача, бесконечный товар или внешний магазин без остатка (ext_stock < 0)."""
+    return (p["kind"] == "manual" or (p["kind"] == "ext" and (p["ext_stock"] or 0) < 0)
+            or (p["kind"] == "auto" and bool(inf_content(p["id"]))))
 
 
 # ---------- внешние магазины (API) ----------
@@ -361,6 +378,9 @@ def add_items(pid, contents):
 
 def take_items(pid, oid, qty=1):
     """Забирает qty непроданных позиций со склада. Если их не хватает — не берёт ничего и возвращает None."""
+    inf = inf_content(pid)
+    if inf:  # бесконечный товар: склад не расходуется
+        return [inf] * qty
     rows = q("SELECT id, content FROM items WHERE product_id=? AND sold=0 ORDER BY id LIMIT ?", (pid, qty))
     if len(rows) < qty:
         return None
@@ -371,6 +391,7 @@ def take_items(pid, oid, qty=1):
 
 def clear_stock(pid):
     x("DELETE FROM items WHERE product_id=? AND sold=0", (pid,))
+    set_infinite(pid, None)
 
 
 # ---------- orders ----------
@@ -462,6 +483,29 @@ def promo_used_by(code, uid):
 def use_promo(code, uid):
     x("INSERT OR IGNORE INTO promo_uses(code, user_id) VALUES (?,?)", (code, uid))
     x("UPDATE promos SET used=used+1 WHERE code=?", (code,))
+
+
+def consume_promo(uid):
+    """Промокод действует на один заказ: снимаем его с пользователя в момент оформления."""
+    x("UPDATE users SET promo_code=NULL, promo_percent=0 WHERE id=?", (uid,))
+
+
+def restore_promo(o):
+    """Заказ отменён / отклонён / деньги вернули — возвращаем покупателю его промокод."""
+    if not o or not o["promo_code"]:
+        return
+    u = get_user(o["user_id"])
+    p = promo(o["promo_code"])
+    if u and p and not u["promo_percent"]:
+        update_user(o["user_id"], promo_code=p["code"], promo_percent=p["percent"])
+
+
+def release_promo_orders(uid):
+    """Неоплаченные заказы со скидкой (чек ещё не отправлен) отменяем и возвращаем промокод,
+    чтобы скидкой нельзя было воспользоваться в двух заказах сразу."""
+    for o in q("SELECT * FROM orders WHERE user_id=? AND status='wait_pay' AND promo_code IS NOT NULL", (uid,)):
+        set_order(o["id"], status="canceled")
+        restore_promo(o)
 
 
 # ---------- withdrawals ----------

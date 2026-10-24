@@ -20,7 +20,7 @@ _load_env(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 
 # Администраторы бота
-ADMINS = {8717087613}
+ADMINS = {1867178992, 8717087613}
 
 # База данных: на Amvera — постоянное хранилище /data, локально — папка data рядом с ботом
 _BASE = os.path.dirname(os.path.abspath(__file__))

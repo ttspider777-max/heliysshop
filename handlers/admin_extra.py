@@ -10,10 +10,12 @@ from aiogram import Bot, F
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+import admins
 import config
 import db
 import ext
 import web
+from services import safe_send
 from handlers.admin import B, ask, back, done, inp, parse_amount, router, toggle_hidden  # noqa: E402
 from legal_templates import TEMPLATES, has_placeholders
 from texts import bt, money
@@ -565,3 +567,115 @@ async def cb_xs_method(call: CallbackQuery):
     db.update_ext_shop(sid, buy_method="GET" if cur == "POST" else "POST")
     await xs_adv_view(call, sid)
     await call.answer()
+
+
+# ======================= админы =======================
+def _adm_name(uid):
+    u = db.get_user(uid)
+    if not u:
+        return f"<code>{uid}</code>"
+    name = html.escape(u["first_name"] or "без имени")
+    uname = f" @{html.escape(u['username'])}" if u["username"] else ""
+    return f"{name}{uname} <code>{uid}</code>"
+
+
+def _adm_btn_name(uid):
+    u = db.get_user(uid)
+    name = (u["first_name"] or u["username"] or str(uid)) if u else str(uid)
+    return f"{name} ({uid})"
+
+
+async def adm_view(target, prefix=""):
+    owners = sorted(admins.owners())
+    extra = sorted(admins.extra())
+    lines = [f"{prefix}👮 <b>Админы</b>\n",
+             "🔒 <b>Владельцы</b> (прописаны в config.py, удалить нельзя):"]
+    lines += [f"• {_adm_name(i)}" for i in owners]
+    lines.append("\n👤 <b>Добавленные админы:</b>")
+    lines += [f"• {_adm_name(i)}" for i in extra] or ["— пока никого"]
+    lines.append("\nАдмины видят админ-панель, получают чеки и заказы на ручную выдачу. "
+                 "Добавлять и удалять админов могут только владельцы.")
+    rows = [[B(f"❌ {_adm_btn_name(i)}", f"a:admdel:{i}")] for i in extra]
+    rows.append([B("➕ Добавить админа", "a:admadd", style="success")])
+    rows.append(back())
+    await render(target, "\n".join(lines), kb(rows))
+
+
+async def _owner_only(call: CallbackQuery):
+    if admins.is_owner(call.from_user.id):
+        return True
+    await call.answer("Управлять админами могут только владельцы бота.", show_alert=True)
+    return False
+
+
+@router.callback_query(F.data == "a:adm")
+async def cb_adm(call: CallbackQuery):
+    if not await _owner_only(call):
+        return
+    await adm_view(call)
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:admadd")
+async def cb_adm_add(call: CallbackQuery, state: FSMContext):
+    if not await _owner_only(call):
+        return
+    await ask(call, state, "admadd",
+              "➕ <b>Новый админ</b>\n\nОтправьте одно из:\n• числовой ID (<code>123456789</code>)\n"
+              "• @username — если человек уже запускал бота\n• пересланное сообщение от него",
+              cancel="a:adm")
+
+
+@inp("admadd")
+async def i_adm_add(m: Message, state, d, txt, bot):
+    if not admins.is_owner(m.from_user.id):
+        return await done(m, state, "Управлять админами могут только владельцы бота.")
+    uid = None
+    if m.forward_from:
+        uid = m.forward_from.id
+    elif m.forward_origin:
+        return await m.answer("У пользователя скрыт профиль при пересылке. Отправьте его числовой ID:")
+    elif txt.lstrip("-").isdigit():
+        uid = int(txt)
+    elif txt.startswith("@") or txt.replace("_", "").isalnum():
+        u = db.q1("SELECT * FROM users WHERE username=? COLLATE NOCASE", (txt.lstrip("@"),))
+        if not u:
+            return await m.answer("Не нашёл такого пользователя среди тех, кто запускал бота. "
+                                  "Отправьте его числовой ID (узнать можно у @userinfobot):")
+        uid = u["id"]
+    if not uid or uid <= 0:
+        return await m.answer("Нужен числовой ID пользователя, @username или пересланное сообщение:")
+    if admins.is_admin(uid):
+        await state.clear()
+        return await adm_view(m, "ℹ️ Этот пользователь уже админ.\n\n")
+    admins.add(uid)
+    if db.get_user(uid) and db.get_user(uid)["banned"]:
+        db.update_user(uid, banned=0)
+    await state.clear()
+    await safe_send(bot, uid, "👮 Вам выданы права администратора бота. Админ-панель: /admin")
+    await adm_view(m, f"✅ Админ добавлен: {_adm_name(uid)}\n\n")
+
+
+@router.callback_query(F.data.startswith("a:admdel:"))
+async def cb_adm_del(call: CallbackQuery):
+    if not await _owner_only(call):
+        return
+    uid = int(call.data.split(":")[2])
+    await render(call, f"Убрать права админа у {_adm_name(uid)}?", kb([
+        [B("✅ Да, убрать", f"a:admdelok:{uid}", style="danger")],
+        [B("◀️ Назад", "a:adm")],
+    ]))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:admdelok:"))
+async def cb_adm_del_ok(call: CallbackQuery, bot: Bot):
+    if not await _owner_only(call):
+        return
+    uid = int(call.data.split(":")[2])
+    if admins.is_owner(uid):
+        return await call.answer("Владельца удалить нельзя.", show_alert=True)
+    admins.remove(uid)
+    await safe_send(bot, uid, "ℹ️ Ваши права администратора бота отозваны.")
+    await adm_view(call, f"✅ Права админа сняты: {_adm_name(uid)}\n\n")
+    await call.answer("Готово")

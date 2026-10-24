@@ -9,6 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, Message
 
+import admins
 import config
 import db
 import subscription
@@ -17,8 +18,8 @@ from texts import BUTTONS, EDITABLE_TEXTS, bt, fdate, money, status, t
 from ui import HIDEABLE, fix_url, is_hidden, kb, pager, render, split_custom_emoji
 
 router = Router()
-router.message.filter(F.from_user.id.in_(config.ADMINS))
-router.callback_query.filter(F.from_user.id.in_(config.ADMINS))
+router.message.filter(lambda e: bool(e.from_user) and admins.is_admin(e.from_user.id))
+router.callback_query.filter(lambda e: admins.is_admin(e.from_user.id))
 
 
 class A(StatesGroup):
@@ -30,7 +31,7 @@ class ClearState(BaseMiddleware):
 
     async def __call__(self, handler, event, data):
         st = data.get("state")
-        if st and not event.data.startswith("a:npk:"):
+        if st and not event.data.startswith(("a:npk:", "a:aim:")):
             await st.clear()
         return await handler(event, data)
 
@@ -64,6 +65,7 @@ def admin_kb():
         [B("📄 Документы (оплата)", "a:docs", style="primary")],
         [B("🎟 Промокоды", "a:promos"), B("✏️ Оформление", "a:design")],
         [B("📣 Обязательная подписка", "a:subs", style="primary"), B("⚙️ Настройки", "a:settings")],
+        [B("👮 Админы", "a:adm")],
         [B("🏠 Главное меню бота", "menu")],
     ])
 
@@ -304,7 +306,7 @@ async def i_ban(m, state, d, txt, bot):
     if not txt.isdigit():
         return await m.answer("Нужен числовой ID:")
     uid = int(txt)
-    if uid in config.ADMINS:
+    if admins.is_admin(uid):
         return await done(m, state, "Админа забанить нельзя.")
     ban = d["act"] == "ban"
     if not db.get_user(uid):
@@ -403,6 +405,10 @@ def admin_product_text(p):
     if p["old_price"] and p["old_price"] > p["price"]:
         disc = f" (скидка, было {money(p['old_price'])})"
     stock = "∞ (ручная выдача)" if p["kind"] == "manual" else f"{db.stock(p['id'])} шт."
+    inf = db.inf_content(p["id"]) if p["kind"] == "auto" else None
+    if inf:
+        short = inf if len(inf) <= 200 else inf[:200] + "…"
+        stock = f"♾ бесконечно — выдаётся <code>{html.escape(short)}</code>"
     kind = {"auto": "автоматическая", "manual": "ручная", "ext": "через API внешнего магазина"}[p["kind"]]
     ext_info = ""
     if p["kind"] == "ext":
@@ -433,6 +439,9 @@ async def show_admin_product(target, pid, prefix=""):
         rows.append([B("❎ Убрать скидку", f"a:pnd:{pid}")])
     if p["kind"] == "auto":
         rows.append([B("📦 Пополнить склад", f"a:ai:{pid}", style="success"), B("🗑 Очистить склад", f"a:pclr:{pid}")])
+        if db.inf_content(pid):
+            rows.append([B("⛔ Выключить бесконечность", f"a:infoff:{pid}", style="danger")])
+    rows.append([B("👁 Содержимое товара (что на складе)", f"a:pv:{pid}:0", style="primary")])
     kind_btn = [] if p["kind"] == "ext" else [B("🔧 Тип выдачи", f"a:pkind:{pid}")]
     rows += [
         [B("📁 Категория", f"a:pcat:{pid}")] + kind_btn,
@@ -587,13 +596,76 @@ async def cb_pcs(call: CallbackQuery):
     await call.answer("Категория изменена")
 
 
+# ---------- просмотр содержимого товара ----------
+PV_PER = 8
+
+
+def _unsold_items(pid):
+    return db.q("SELECT id, content FROM items WHERE product_id=? AND sold=0 ORDER BY id", (pid,))
+
+
+@router.callback_query(F.data.startswith("a:pv:"))
+async def cb_pview(call: CallbackQuery):
+    _, _, pid, page = call.data.split(":")
+    pid, page = int(pid), int(page)
+    p = db.product(pid)
+    if not p:
+        return await call.answer("Товар не найден", show_alert=True)
+    items = _unsold_items(pid)
+    pages = max(1, (len(items) + PV_PER - 1) // PV_PER)
+    page = min(max(page, 0), pages - 1)
+    sold = db.val("SELECT COUNT(*) FROM items WHERE product_id=? AND sold=1", (pid,))
+    text = (f"👁 <b>{html.escape(p['name'])}</b>  [ID {pid}]\n"
+            f"💰 Цена: {money(p['price'])}\n\n"
+            f"📝 <b>Текст товара (описание):</b>\n{p['description'] or '—'}\n\n")
+    rows = []
+    if p["kind"] == "auto" and db.inf_content(pid):
+        text += (f"♾ <b>Бесконечный товар</b> — каждому покупателю выдаётся:\n"
+                 f"<code>{html.escape(db.inf_content(pid)[:1500])}</code>\n")
+        rows.append([B("⛔ Выключить бесконечность", f"a:infoff:{pid}", style="danger")])
+    elif p["kind"] == "auto":
+        text += f"🔑 <b>Содержимое на складе</b>: в наличии {len(items)}, продано {sold}\n"
+        for n, it in enumerate(items[page * PV_PER:(page + 1) * PV_PER], page * PV_PER + 1):
+            c = it["content"]
+            c = c if len(c) <= 300 else c[:300] + "…"
+            text += f"\n<b>{n}.</b> <code>{html.escape(c)}</code>"
+        if not items:
+            text += "\nСклад пуст."
+        else:
+            rows.append(pager(f"a:pv:{pid}:", page, pages))
+            rows.append([B("📄 Скачать всё .txt", f"a:pvf:{pid}")])
+        rows.append([B("📦 Пополнить склад", f"a:ai:{pid}", style="success")])
+    elif p["kind"] == "manual":
+        text += "🔑 Ручная выдача: содержимое вы отправляете сами после оплаты, на складе ничего не хранится."
+    else:
+        text += "🔌 Товар внешнего магазина: содержимое выдаёт поставщик по API при покупке."
+    rows.append(back(f"a:p:{pid}", "◀️ К товару"))
+    await render(call, text[:4000], kb(rows))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:pvf:"))
+async def cb_pview_file(call: CallbackQuery):
+    pid = int(call.data.split(":")[2])
+    p = db.product(pid)
+    items = _unsold_items(pid)
+    if not p or not items:
+        return await call.answer("Склад пуст", show_alert=True)
+    desc = re.sub(r"<[^>]+>", "", p["description"] or "-")
+    body = f"Товар: {p['name']} (ID {pid})\nЦена: {p['price']}\nОписание:\n{desc}\n\n"
+    body += "\n\n".join(f"{n}. {it['content']}" for n, it in enumerate(items, 1))
+    await call.message.answer_document(BufferedInputFile(body.encode("utf-8"), filename=f"product_{pid}.txt"),
+                                       caption=f"📄 {html.escape(p['name'])}: {len(items)} шт. на складе")
+    await call.answer()
+
+
 # ---------- склад ----------
 @router.callback_query(F.data == "a:additems")
 async def cb_additems(call: CallbackQuery):
     prods = [p for p in db.all_products() if p["kind"] == "auto"]
     if not prods:
         return await call.answer("Нет товаров с автовыдачей. Сначала создайте товар с автовыдачей.", show_alert=True)
-    rows = [[B(f"{p['name']} [{db.stock(p['id'])}]", f"a:ai:{p['id']}")] for p in prods]
+    rows = [[B(f"{p['name']} [{'∞' if db.inf_content(p['id']) else db.stock(p['id'])}]", f"a:ai:{p['id']}")] for p in prods]
     rows.append(back())
     await render(call, "📦 <b>Пополнить склад</b>\n\nВыберите товар:", kb(rows))
     await call.answer()
@@ -608,6 +680,8 @@ async def cb_ai(call: CallbackQuery, state: FSMContext):
               "Отправьте товары текстом или <b>.txt файлом</b>.\n\n"
               "• <b>одна строка = один товар</b>, например:\n<code>ключ-1\nключ-2</code>\n\n"
               "• если данные одного товара занимают несколько строк — разделяйте товары <b>пустой строкой</b>.\n\n"
+              "• отправьте <b>одну</b> позицию (юзернейм, ссылку) — бот предложит размножить её на нужное "
+              "количество или сделать товар <b>бесконечным ♾</b>.\n\n"
               "Бот будет выдавать их покупателям автоматически, по одному на заказ.",
               cancel=f"a:p:{pid}", pid=pid)
 
@@ -628,12 +702,71 @@ async def i_items(m, state, d, txt, bot):
     else:
         chunks = [c.strip() for c in raw.split("\n")]
     chunks = [c for c in chunks if c]
+    if len(chunks) == 1:  # одна позиция — спрашиваем: 1 шт., N копий или бесконечно
+        await state.update_data(act="items_mode", content=chunks[0])
+        c = chunks[0] if len(chunks[0]) <= 300 else chunks[0][:300] + "…"
+        return await m.answer(
+            f"Вы отправили <b>одну</b> позицию:\n<code>{html.escape(c)}</code>\n\nКак добавить её на склад?",
+            reply_markup=kb([
+                [B("➕ Добавить 1 шт.", "a:aim:one")],
+                [B("🔢 Размножить — указать количество", "a:aim:n", style="primary")],
+                [B("♾ Бесконечно", "a:aim:inf", style="success")],
+                [B("❌ Отмена", f"a:p:{pid}", style="danger")],
+            ]))
+    await state.clear()
+    await _items_added(m, bot, pid, chunks)
+
+
+async def _items_added(target, bot, pid, chunks):
     was = db.stock(pid)
     n = db.add_items(pid, chunks)
-    await state.clear()
     notified = await notify_arrival(bot, pid) if n else 0
     extra = f"\n🔔 Уведомлено ожидающих: {notified}" if notified else ""
-    await show_admin_product(m, pid, prefix=f"✅ Добавлено: <b>{n}</b> (было {was}, стало {db.stock(pid)}){extra}\n\n")
+    await show_admin_product(target, pid, prefix=f"✅ Добавлено: <b>{n}</b> (было {was}, стало {db.stock(pid)}){extra}\n\n")
+
+
+MAX_COPIES = 10000  # сколько копий одной позиции можно добавить за раз
+
+
+@router.callback_query(F.data.startswith("a:aim:"))
+async def cb_items_mode(call: CallbackQuery, state: FSMContext, bot: Bot):
+    d = await state.get_data()
+    pid, content = d.get("pid"), d.get("content")
+    if not pid or not content or not db.product(pid):
+        await state.clear()
+        return await call.answer("Данные устарели — отправьте позицию ещё раз через «📦 Пополнить склад».", show_alert=True)
+    mode = call.data.split(":")[2]
+    if mode == "n":
+        return await ask(call, state, "items_n",
+                         f"🔢 Сколько штук добавить? Отправьте число от 1 до {MAX_COPIES}.\n\n"
+                         "Покупатели будут получать эту позицию, пока не закончится количество.",
+                         cancel=f"a:p:{pid}", pid=pid, content=content)
+    await state.clear()
+    if mode == "inf":
+        db.set_infinite(pid, content)
+        notified = await notify_arrival(bot, pid)
+        extra = f"\n🔔 Уведомлено ожидающих: {notified}" if notified else ""
+        await call.answer("♾ Товар стал бесконечным")
+        return await show_admin_product(call, pid, prefix=f"♾ <b>Бесконечный товар включён</b> — каждый покупатель "
+                                                          f"получит эту позицию, склад не заканчивается.{extra}\n\n")
+    await call.answer()
+    await _items_added(call, bot, pid, [content])
+
+
+@inp("items_n")
+async def i_items_n(m, state, d, txt, bot):
+    if not txt.isdigit() or not 1 <= int(txt) <= MAX_COPIES:
+        return await m.answer(f"Отправьте число от 1 до {MAX_COPIES}:")
+    await state.clear()
+    await _items_added(m, bot, d["pid"], [d["content"]] * int(txt))
+
+
+@router.callback_query(F.data.startswith("a:infoff:"))
+async def cb_inf_off(call: CallbackQuery):
+    pid = int(call.data.split(":")[2])
+    db.set_infinite(pid, None)
+    await show_admin_product(call, pid, prefix="⛔ Бесконечная выдача выключена.\n\n")
+    await call.answer("Выключено")
 
 
 # ======================= заказы: чеки, ручная выдача =======================
@@ -671,6 +804,7 @@ async def cb_order_no(call: CallbackQuery, bot: Bot):
         await mark_admin_msg(call, f"ℹ️ Уже обработан: {status(o['status'], 'ru') if o else '—'}")
         return await call.answer("Заказ уже обработан", show_alert=True)
     db.set_order(oid, status="rejected")
+    db.restore_promo(o)
     u = db.get_user(o["user_id"])
     lang = u["lang"] if u else "ru"
     surl = fix_url(db.get_setting("support_url", config.SUPPORT_URL))

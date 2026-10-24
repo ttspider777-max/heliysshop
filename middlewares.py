@@ -1,6 +1,7 @@
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message
 
+import admins
 import config
 import db
 import subscription
@@ -44,14 +45,14 @@ class UserMiddleware(BaseMiddleware):
         elif row["username"] != u.username or row["first_name"] != u.first_name:
             db.update_user(u.id, username=u.username, first_name=u.first_name)
 
-        if row["banned"] and u.id not in config.ADMINS:
+        if row["banned"] and not admins.is_admin(u.id):
             if isinstance(event, CallbackQuery):
                 await event.answer(t("banned", row["lang"]), show_alert=True)
             else:
                 await event.answer(t("banned", row["lang"]))
             return
 
-        if u.id not in config.ADMINS and not (isinstance(event, CallbackQuery) and event.data == "subcheck"):
+        if not admins.is_admin(u.id) and not (isinstance(event, CallbackQuery) and event.data == "subcheck"):
             lang = row["lang"] or "ru"
 
             # согласие с документами (включается в админ-панели → 📄 Документы)

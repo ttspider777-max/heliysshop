@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
 
+import admins
 import config
 import db
 import subscription
@@ -27,7 +28,7 @@ async def show_main(target, lang, uid, state: FSMContext = None):
     u = db.get_user(uid)
     text = t("welcome", lang, name=html.escape((u["first_name"] if u else None) or "friend"),
              balance=money(u["balance"] if u else 0), orders=db.count_user_orders(uid))
-    await render(target, text, main_kb(lang, uid in config.ADMINS), photo=db.get_setting("welcome_photo"))
+    await render(target, text, main_kb(lang, admins.is_admin(uid)), photo=db.get_setting("welcome_photo"))
 
 
 @router.message(CommandStart())
@@ -45,7 +46,7 @@ async def cmd_start(m: Message, command: CommandObject, state: FSMContext, lang:
 @router.callback_query(F.data == "subcheck")
 async def cb_subcheck(call: CallbackQuery, state: FSMContext, lang: str, bot: Bot):
     subscription.forget(call.from_user.id)
-    if call.from_user.id not in config.ADMINS and await subscription.missing(bot, call.from_user.id):
+    if not admins.is_admin(call.from_user.id) and await subscription.missing(bot, call.from_user.id):
         return await call.answer(t("sub_not_yet", lang), show_alert=True)
     await call.answer(t("sub_thanks", lang))
     await show_main(call, lang, call.from_user.id, state)

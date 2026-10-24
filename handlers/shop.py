@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
+import admins
 import config
 import db
 from services import final_price, fulfill, user_link
@@ -20,7 +21,7 @@ LIST_TITLES = {"hits": "list_hits", "disc": "list_disc", "new": "list_new", "rec
                "fav": "list_fav", "pfav": "list_fav", "srch": "list_srch"}
 
 
-MAX_QTY = 100  # верхний предел количества за один заказ
+MAX_QTY = 10000  # верхний предел количества за один заказ (для автовыдачи — не больше остатка)
 
 
 class ShopSt(StatesGroup):
@@ -227,10 +228,16 @@ async def show_qty(call: CallbackQuery, p, kind, qty, lang):
     def step(label, n):
         return InlineKeyboardButton(text=label, callback_data=f"qty:{pid}:{kind}:{min(max(n, 1), top)}")
 
+    big = []  # крупные шаги — только если можно взять столько штук
+    if top > 100:
+        big = [step("−1000", qty - 1000)] if top > 1000 else []
+        big += [step("−100", qty - 100), step("+100", qty + 100)]
+        big += [step("+1000", qty + 1000)] if top > 1000 else []
     await render(call, qty_text(p, u, qty, lang), kb([
         [step("−10", qty - 10), step("−1", qty - 1),
          InlineKeyboardButton(text=str(qty), callback_data="noop"),
          step("+1", qty + 1), step("+10", qty + 10)],
+        big,
         [btn("qty_input", lang, f"qtyin:{pid}:{kind}")],
         [btn("qty_confirm", lang, f"co:{pid}:{kind}:{qty}")],
         [btn("back", lang, f"p:{pid}:{kind}"), btn("main_menu", lang, "menu")],
@@ -347,12 +354,15 @@ async def cb_pay_balance(call: CallbackQuery, lang: str, bot: Bot):
     err = check_buyable(p, qty)
     if err:
         return await call.answer(t(err, lang), show_alert=True)
+    db.release_promo_orders(call.from_user.id)
     u = db.get_user(call.from_user.id)
     price, _, code = total_price(u, p, qty)
     if u["balance"] < price:
         return await call.answer(t("no_money", lang), show_alert=True)
     db.add_balance(u["id"], -price)
     oid = db.create_order(u["id"], p, price, "balance", "paid", code, qty)
+    if code:
+        db.consume_promo(u["id"])
     await render(call, t("paid_balance", lang, oid=oid), kb([menu_row(lang)]))
     await call.answer()
     await fulfill(bot, oid)
@@ -366,9 +376,12 @@ async def cb_pay_sbp(call: CallbackQuery, lang: str):
     err = check_buyable(p, qty)
     if err:
         return await call.answer(t(err, lang), show_alert=True)
+    db.release_promo_orders(call.from_user.id)
     u = db.get_user(call.from_user.id)
     price, _, code = total_price(u, p, qty)
     oid = db.create_order(u["id"], p, price, "sbp", "wait_pay", code, qty)
+    if code:
+        db.consume_promo(u["id"])
     name = html.escape(p["name"]) + (f" × {qty}" if qty > 1 else "")
     await render(call, t("sbp_text", lang, oid=oid, name=name, price=money(price),
                          details=db.get_setting("sbp_details", config.SBP_DETAILS)), kb([
@@ -396,6 +409,7 @@ async def cb_order_cancel(call: CallbackQuery, state: FSMContext, lang: str):
     o = db.order(oid)
     if o and o["user_id"] == call.from_user.id and o["status"] == "wait_pay":
         db.set_order(oid, status="canceled")
+        db.restore_promo(o)
     await state.set_state(None)
     await render(call, t("order_canceled", lang), kb([[btn("catalog", lang, "cat")], menu_row(lang)]))
     await call.answer()
@@ -438,7 +452,7 @@ async def send_receipt(m: Message, o, lang: str, bot: Bot):
         InlineKeyboardButton(text="✅ Одобрить", callback_data=f"a:ook:{oid}", style="success"),
         InlineKeyboardButton(text="❌ Отклонить", callback_data=f"a:ono:{oid}", style="danger"),
     ]])
-    for aid in config.ADMINS:
+    for aid in admins.ids():
         try:
             if is_photo:
                 await bot.send_photo(aid, file_id, caption=caption, reply_markup=markup)

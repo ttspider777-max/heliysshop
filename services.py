@@ -5,6 +5,7 @@ import logging
 from aiogram import Bot
 from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 
+import admins
 import config
 import db
 import ext
@@ -29,7 +30,7 @@ async def safe_send(bot: Bot, chat_id, text, markup=None):
 
 
 async def to_admins(bot: Bot, text, markup=None):
-    for aid in config.ADMINS:
+    for aid in admins.ids():
         await safe_send(bot, aid, text, markup)
 
 
@@ -55,12 +56,7 @@ async def fulfill(bot: Bot, oid):
     uid = o["user_id"]
     lang = _lang(uid)
     p = db.product(o["product_id"])
-
-    # промокод израсходован
-    if o["promo_code"]:
-        u = db.get_user(uid)
-        if u and u["promo_code"] == o["promo_code"]:
-            db.update_user(uid, promo_code=None, promo_percent=0)
+    # промокод снимается с покупателя ещё при оформлении заказа (db.consume_promo)
 
     if p is not None and p["kind"] == "manual":
         db.set_order(oid, status="manual")
@@ -86,6 +82,7 @@ async def fulfill(bot: Bot, oid):
     if content is None:
         db.add_balance(uid, o["price"])
         db.set_order(oid, status="refunded")
+        db.restore_promo(o)
         await safe_send(bot, uid, t("order_refunded", lang, oid=oid, price=money(o["price"])), _menu_kb(lang))
         await to_admins(bot, f"⚠️ Заказ #{oid}: товар «{html.escape(o['product_name'])}» закончился, "
                              f"{money(o['price'])} возвращено на баланс покупателя.")
@@ -109,12 +106,18 @@ async def fulfill_ext(bot: Bot, o, p, qty, lang):
         except Exception as e:  # ExtError и любые сбои сети — деньги покупателю возвращаем в любом случае
             error = str(e)
     got = min(len(items), qty)
+    if got:
+        db.dec_ext_stock(p["id"], got)  # не ждём автосинхронизации, чтобы не продавать то, чего уже нет
+    elif error and p["ext_stock"] and p["ext_stock"] > 0 and any(
+            w in error.lower() for w in ("stock", "нет в наличии", "закончил", "out of")):
+        db.update_product(p["id"], ext_stock=0)  # поставщик сообщил, что товар закончился
     if got < qty:
         refund = round(o["price"] * (qty - got) / qty, 2)
         db.add_balance(uid, refund)
         name = html.escape(o["product_name"])
         if got == 0:
             db.set_order(oid, status="refunded")
+            db.restore_promo(o)
             await safe_send(bot, uid, t("order_refunded_ext", lang, oid=oid, price=money(refund)), _menu_kb(lang))
             await to_admins(bot, f"⚠️ Заказ #{oid}: поставщик не выдал «{name}».\n"
                                  f"Причина: {html.escape(error or 'нет ответа')}\n"
