@@ -62,7 +62,8 @@ def kb(rows):
 
 # Кнопки, которые админ может скрыть (админ-панель → 🙈 Скрыть кнопки), по разделам бота.
 VIS_GROUPS = (
-    ("🏠 Главное меню", ("catalog", "suppliers", "orders", "profile", "refs", "promo", "lang", "reviews", "support", "docs")),
+    ("🏠 Главное меню", ("catalog",) + (() if config.CHILD else ("mkbot",)) +
+     ("suppliers", "orders", "profile", "refs", "promo", "lang", "reviews", "support", "docs")),
     ("🛍 Каталог", ("hits", "disc", "new", "recent", "search", "fav")),
     ("👤 Профиль и рефералы", ("my_orders", "invite", "withdraw", "refresh")),
     ("🧾 Карточка товара и оплата", ("fav_add", "notify", "pay_balance", "pay_sbp")),
@@ -103,6 +104,7 @@ def main_kb(lang, is_admin=False):
             links.append(btn(key, lang, url=u))
     rows = [
         [btn("catalog", lang, "cat")],
+        [] if config.CHILD else [btn("mkbot", lang, "mkbot")],  # «🤖 Создать своего бота»
         [btn("orders", lang, "ord:m:0"), btn("profile", lang, "profile")],
         [btn("suppliers", lang, f"l:c{db.suppliers_cid()}:0"), btn("refs", lang, "refs")],
         [btn("promo", lang, "promo"), btn("lang", lang, "lang")],

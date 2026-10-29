@@ -90,6 +90,19 @@ CREATE TABLE IF NOT EXISTS ext_shops (
     last_error TEXT DEFAULT '',
     created TEXT
 );
+CREATE TABLE IF NOT EXISTS hosted_bots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    status TEXT,
+    price REAL,
+    receipt TEXT,
+    token TEXT,
+    tg_id INTEGER,
+    username TEXT,
+    shop_name TEXT,
+    created TEXT,
+    started TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_items_prod ON items(product_id, sold);
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
 """
@@ -552,6 +565,52 @@ def delete_custom_button(bid):
     x("DELETE FROM custom_buttons WHERE id=?", (bid,))
 
 
+# ---------- боты клиентов («🤖 Создать своего бота») ----------
+# Статусы: wait_pay — ждём оплату, pending — чек на проверке, wait_token — оплачено, ждём токен,
+# running — работает, stopped — остановлен админом, failed — упал (например, токен отозван),
+# rejected — оплату отклонили, canceled — покупатель отменил, deleted — удалён админом.
+def create_hosted(uid, price):
+    return x("INSERT INTO hosted_bots(user_id, status, price, created) VALUES (?, 'wait_pay', ?, ?)", (uid, price, now()))
+
+
+def hosted(bid):
+    return q1("SELECT * FROM hosted_bots WHERE id=?", (bid,))
+
+
+def set_hosted(bid, **kw):
+    sets = ", ".join(f"{k}=?" for k in kw)
+    x(f"UPDATE hosted_bots SET {sets} WHERE id=?", (*kw.values(), bid))
+
+
+def user_hosted(uid):
+    return q("""SELECT * FROM hosted_bots WHERE user_id=? AND status NOT IN ('wait_pay','canceled','deleted')
+                ORDER BY id DESC""", (uid,))
+
+
+def hosted_wait_pay(uid):
+    """Последняя заявка на бота, ожидающая чек (за последние сутки)."""
+    return q1("""SELECT * FROM hosted_bots WHERE user_id=? AND status='wait_pay'
+                 AND created >= datetime('now','localtime','-1 day') ORDER BY id DESC LIMIT 1""", (uid,))
+
+
+def hosted_wait_token(uid):
+    return q1("SELECT * FROM hosted_bots WHERE user_id=? AND status='wait_token' ORDER BY id LIMIT 1", (uid,))
+
+
+def hosted_by_tg(tg_id):
+    """Бот с этим Telegram-ID, который уже стоит на хосте (чтобы один токен не запускали дважды)."""
+    return q1("SELECT * FROM hosted_bots WHERE tg_id=? AND status IN ('running','stopped','failed')", (tg_id,))
+
+
+def hosted_running():
+    return q("SELECT * FROM hosted_bots WHERE status='running' ORDER BY id")
+
+
+def hosted_list():
+    return q("""SELECT * FROM hosted_bots WHERE status NOT IN ('wait_pay','canceled','deleted')
+                ORDER BY id DESC LIMIT 60""")
+
+
 # ---------- stats ----------
 def stats():
     today = "date('now','localtime')"
@@ -574,6 +633,8 @@ def stats():
         "sold_items": val("SELECT COUNT(*) FROM items WHERE sold=1"),
         "balances": val("SELECT COALESCE(SUM(balance),0) FROM users"),
         "wd_pending": val("SELECT COUNT(*) FROM withdrawals WHERE status='pending'"),
+        "bots_pending": val("SELECT COUNT(*) FROM hosted_bots WHERE status='pending'"),
+        "bots_running": val("SELECT COUNT(*) FROM hosted_bots WHERE status='running'"),
         "top": q1(f"""SELECT product_name, COUNT(*) c FROM orders WHERE {paid}
                       GROUP BY product_id ORDER BY c DESC LIMIT 1"""),
     }

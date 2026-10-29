@@ -1,22 +1,30 @@
+import html as _html
+
+import config
 import db
 
 # Тонкий разделитель для оформления экранов (единый стиль всего бота).
 DIVIDER = "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
 D = DIVIDER
 
+SHOP = _html.escape(config.SHOP_NAME)
+TITLE = _html.escape(config.SHOP_TITLE)
+if config.CHILD:  # у бота клиента — нейтральное описание, владелец поменяет его в ✏️ Оформление
+    TAGLINE = ("Цифровые товары — быстро и удобно.", "Digital goods — fast and easy.")
+else:
+    TAGLINE = ("Физические номера и AI‑сервисы — быстро и удобно.", "Physical numbers and AI services — fast and easy.")
+
 # Тексты интерфейса: ключ -> (русский, английский).
 # Тексты из EDITABLE_TEXTS админ может переопределить в админ-панели (с премиум-эмодзи).
 TEXTS = {
     # В приветствии можно использовать {name} (имя покупателя), {balance} (баланс) и {orders} (число заказов).
     "welcome": (
-        "✨ <b>heliys 𝗌𝗁𝗈𝗉</b>\n" + D + "\nПривет, <b>{name}</b>! 👋\n\n"
-        "Физические номера и AI‑сервисы — быстро и удобно.\n\n"
+        "✨ <b>" + TITLE + "</b>\n" + D + "\nПривет, <b>{name}</b>! 👋\n\n" + TAGLINE[0] + "\n\n"
         "⚡ Автовыдача 24/7\n💳 Оплата по СБП или с баланса\n💬 Поддержка на связи\n\n👇 Выберите раздел",
-        "✨ <b>heliys 𝗌𝗁𝗈𝗉</b>\n" + D + "\nHi, <b>{name}</b>! 👋\n\n"
-        "Physical numbers and AI services — fast and easy.\n\n"
+        "✨ <b>" + TITLE + "</b>\n" + D + "\nHi, <b>{name}</b>! 👋\n\n" + TAGLINE[1] + "\n\n"
         "⚡ Instant delivery 24/7\n💳 Pay via SBP or from balance\n💬 Support is online\n\n👇 Choose a section",
     ),
-    "catalog_title": ("🛍 <b>Каталог heliys shop</b>", "🛍 <b>heliys shop catalog</b>"),
+    "catalog_title": ("🛍 <b>Каталог " + SHOP + "</b>", "🛍 <b>" + SHOP + " catalog</b>"),
     "catalog_body": (
         "🔥 <b>Хиты</b> — по реальным покупкам\n"
         "🏷 <b>Скидки</b> — только активные предложения\n"
@@ -128,7 +136,7 @@ TEXTS = {
         "💰 Available to withdraw: <b>{available}</b>\n\n"
         "<i>You get {pct}% of every purchase made by your referrals. Withdrawal goes to your bot balance via admin request, minimum {min}.</i>",
     ),
-    "invite_text": ("Заходи в heliys shop 🔥", "Check out heliys shop 🔥"),
+    "invite_text": ("Заходи в " + config.SHOP_NAME + " 🔥", "Check out " + config.SHOP_NAME + " 🔥"),
     "refreshed": ("🔄 Обновлено", "🔄 Refreshed"),
     "ref_new": ("👥 По вашей ссылке присоединился новый пользователь!", "👥 A new user joined via your link!"),
     "ref_bonus": ("💸 Реферальное начисление: <b>+{amount}</b>", "💸 Referral reward: <b>+{amount}</b>"),
@@ -161,6 +169,111 @@ TEXTS = {
         "📜 <b>Before you start</b>\n" + D + "\nPlease read the Terms of Service and the Privacy Policy and tap «I agree».",
     ),
     "pay_terms": ("Оплачивая заказ, вы принимаете условия документов:", "By paying you accept the terms of:"),
+    # ---------- «🤖 Создать своего бота» ----------
+    # В mb_info можно использовать {price} — цену создания (⚙️ Настройки → 🤖 Цена бота).
+    "mb_info": (
+        "🤖 <b>Свой бот-магазин</b>\n" + D + "\n"
+        "Получите такой же бот-магазин, как этот: со своим названием, товарами, оплатой по СБП, "
+        "рефералами, промокодами и полной админ-панелью.\n\n"
+        "<b>Как это работает:</b>\n"
+        "1️⃣ Нажмите «Я прочитал» и оплатите создание — <b>{price}</b>\n"
+        "2️⃣ Нажмите «Я оплатил» и отправьте чек — администратор проверит оплату\n"
+        "3️⃣ Создайте бота в @BotFather: /newbot → название → юзернейм (на конце <code>bot</code>)\n"
+        "4️⃣ Пришлите сюда токен, который выдаст BotFather\n"
+        "5️⃣ Бот сам встанет на хостинг и включится — откройте его и нажмите /admin\n\n"
+        "👑 Вы будете владельцем и админом своего бота. Хостинг — на нашем сервере, ничего настраивать не нужно.",
+        "🤖 <b>Your own shop bot</b>\n" + D + "\n"
+        "Get the same shop bot as this one: with your own name, products, SBP payments, "
+        "referrals, promo codes and a full admin panel.\n\n"
+        "<b>How it works:</b>\n"
+        "1️⃣ Tap «I've read it» and pay for setup — <b>{price}</b>\n"
+        "2️⃣ Tap «I have paid» and send the receipt — the admin will check the payment\n"
+        "3️⃣ Create a bot in @BotFather: /newbot → name → username (ending with <code>bot</code>)\n"
+        "4️⃣ Send the token BotFather gives you here\n"
+        "5️⃣ The bot is hosted and started automatically — open it and send /admin\n\n"
+        "👑 You'll be the owner and admin of your bot. It runs on our server, no setup needed.",
+    ),
+    "mb_bots_head": ("\n\n🤖 <b>Ваши боты:</b>", "\n\n🤖 <b>Your bots:</b>"),
+    "mb_bot_line": ("\n• {name} — {status}", "\n• {name} — {status}"),
+    "mb_send_token": ("\n\n👉 Пришлите токен из @BotFather сообщением в этот чат.",
+                      "\n\n👉 Send the token from @BotFather as a message in this chat."),
+    "mb_pay": (
+        "💳 <b>Оплата создания бота</b>\n" + D + "\n🧾 Заявка #{bid}\n💰 Сумма: <b>{price}</b>\n\n📲 Реквизиты:\n{details}\n\n"
+        "Переведите <b>точную сумму</b> и нажмите «Я оплатил».",
+        "💳 <b>Bot setup payment</b>\n" + D + "\n🧾 Request #{bid}\n💰 Amount: <b>{price}</b>\n\n📲 Details:\n{details}\n\n"
+        "Transfer the <b>exact amount</b> and tap «I have paid».",
+    ),
+    "mb_receipt_sent": (
+        "✅ Чек отправлен администратору.\nПосле проверки я попрошу прислать токен вашего бота.",
+        "✅ Receipt sent to the administrator.\nAfter review I'll ask you for your bot's token.",
+    ),
+    "mb_approved": (
+        "✅ <b>Оплата подтверждена!</b>\n" + D + "\nПришлите токен от @BotFather. Как его получить:\n\n"
+        "1. Откройте @BotFather и отправьте /newbot\n"
+        "2. Придумайте название — его увидят покупатели\n"
+        "3. Придумайте юзернейм латиницей, на конце <code>bot</code> (например <code>myshop_bot</code>)\n"
+        "4. BotFather пришлёт токен вида <code>123456789:AAH…</code> — скопируйте его целиком и отправьте сюда\n\n"
+        "🔒 Никому, кроме этого бота, токен не отправляйте.",
+        "✅ <b>Payment confirmed!</b>\n" + D + "\nSend the token from @BotFather. How to get it:\n\n"
+        "1. Open @BotFather and send /newbot\n"
+        "2. Choose a name — customers will see it\n"
+        "3. Choose a username in Latin letters ending with <code>bot</code> (e.g. <code>myshop_bot</code>)\n"
+        "4. BotFather will send a token like <code>123456789:AAH…</code> — copy all of it and send it here\n\n"
+        "🔒 Don't send the token to anyone except this bot.",
+    ),
+    "mb_rejected": (
+        "❌ Оплата за создание бота (заявка #{bid}) не подтверждена. Если это ошибка — напишите в поддержку.",
+        "❌ Payment for bot setup (request #{bid}) was not confirmed. If this is a mistake, contact support.",
+    ),
+    "mb_checking": ("⏳ Проверяю токен и запускаю бота…", "⏳ Checking the token and starting the bot…"),
+    "mb_token_format": (
+        "❌ Это не похоже на токен. Он выглядит так: <code>123456789:AAH…</code> — скопируйте его целиком из @BotFather.",
+        "❌ That doesn't look like a token. It looks like <code>123456789:AAH…</code> — copy all of it from @BotFather.",
+    ),
+    "mb_token_invalid": (
+        "❌ Telegram не принял этот токен. Проверьте, что скопировали его полностью, или получите новый в @BotFather (/token).",
+        "❌ Telegram rejected this token. Make sure you copied all of it, or get a new one in @BotFather (/token).",
+    ),
+    "mb_token_network": (
+        "⚠️ Не удалось проверить токен — нет связи с Telegram. Пришлите его ещё раз через минуту.",
+        "⚠️ Couldn't check the token — no connection to Telegram. Send it again in a minute.",
+    ),
+    "mb_token_taken": (
+        "❌ Этот бот уже запущен. Создайте нового бота в @BotFather и пришлите его токен.",
+        "❌ This bot is already running. Create a new bot in @BotFather and send its token.",
+    ),
+    "mb_started": (
+        "🎉 <b>Ваш бот запущен!</b>\n" + D + "\n🤖 @{username}\n\n"
+        "Откройте его и отправьте /admin — вы владелец и админ.\n"
+        "В админ-панели добавьте товары, а в ⚙️ Настройки укажите свои реквизиты СБП и ссылку на поддержку.",
+        "🎉 <b>Your bot is running!</b>\n" + D + "\n🤖 @{username}\n\n"
+        "Open it and send /admin — you're the owner and admin.\n"
+        "Add products in the admin panel and set your SBP details and support link in ⚙️ Settings.",
+    ),
+    "mb_start_fail": (
+        "⚠️ Бот @{username} не смог запуститься. Администратор уже получил уведомление и поможет.",
+        "⚠️ Bot @{username} failed to start. The administrator has been notified and will help.",
+    ),
+    "mb_failed": (
+        "⚠️ Ваш бот @{username} остановлен: он не может подключиться к Telegram. Скорее всего, токен изменили "
+        "в @BotFather. Откройте «🤖 Создать своего бота» → «🔑 Новый токен» и пришлите актуальный токен.",
+        "⚠️ Your bot @{username} was stopped: it can't connect to Telegram. Most likely the token was changed "
+        "in @BotFather. Open «🤖 Create your own bot» → «🔑 New token» and send the current token.",
+    ),
+    "mb_new_token": (
+        "🔑 Пришлите новый токен бота @{username}: в @BotFather отправьте /token и выберите этого бота.",
+        "🔑 Send the new token for @{username}: in @BotFather send /token and pick this bot.",
+    ),
+}
+
+# Статусы ботов клиентов («🤖 Создать своего бота»)
+BOT_STATUS = {
+    "pending": ("🔎 оплата на проверке", "🔎 payment under review"),
+    "wait_token": ("🔑 ждёт токен", "🔑 waiting for token"),
+    "running": ("✅ работает", "✅ running"),
+    "stopped": ("⏸ остановлен", "⏸ stopped"),
+    "failed": ("⚠️ не работает", "⚠️ not working"),
+    "rejected": ("❌ оплата отклонена", "❌ payment rejected"),
 }
 
 STATUS = {
@@ -212,12 +325,22 @@ BUTTONS = {
     "legal_privacy": ("🔒 Политика", "🔒 Privacy", ""),
     "legal_terms": ("📜 Соглашение", "📜 Terms", ""),
     "agree": ("✅ Принимаю", "✅ I agree", "success"),
+    "mkbot": ("🤖 Создать своего бота", "🤖 Create your own bot", "primary"),
+    "mb_read": ("✅ Я прочитал", "✅ I've read it", "success"),
+    "mb_token": ("🔑 Новый токен", "🔑 New token", ""),
 }
 
 EDITABLE_TEXTS = {
     "welcome": "👋 Приветствие",
     "catalog_title": "🛍 Заголовок каталога",
 }
+if not config.CHILD:
+    EDITABLE_TEXTS["mb_info"] = "🤖 Создать своего бота"
+
+
+def bot_status(st, lang):
+    pair = BOT_STATUS.get(st, (st, st))
+    return pair[1] if lang == "en" else pair[0]
 
 
 class _Safe(dict):

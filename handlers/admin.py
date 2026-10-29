@@ -65,17 +65,19 @@ def admin_kb():
         [B("📄 Документы (оплата)", "a:docs", style="primary")],
         [B("🎟 Промокоды", "a:promos"), B("✏️ Оформление", "a:design")],
         [B("📣 Обязательная подписка", "a:subs", style="primary"), B("⚙️ Настройки", "a:settings")],
-        [B("👮 Админы", "a:adm")],
+        [B("👮 Админы", "a:adm")] + ([] if config.CHILD else [B("🤖 Боты клиентов", "a:hb")]),
         [B("🏠 Главное меню бота", "menu")],
     ])
 
 
 def admin_text():
     s = db.stats()
-    return (f"⚙️ <b>Админ-панель heliys shop</b>\n\n👥 Пользователей: <b>{s['users']}</b>\n"
+    return (f"⚙️ <b>Админ-панель {html.escape(config.SHOP_NAME)}</b>\n\n👥 Пользователей: <b>{s['users']}</b>\n"
             f"🛒 Продаж: <b>{s['orders']}</b> на <b>{money(s['rev'])}</b>\n"
             f"🔎 Чеков на проверке: <b>{s['pending']}</b>\n🛠 Ждут ручной выдачи: <b>{s['manual']}</b>\n"
-            f"💸 Заявок на вывод: <b>{s['wd_pending']}</b>")
+            f"💸 Заявок на вывод: <b>{s['wd_pending']}</b>"
+            + ("" if config.CHILD else f"\n🤖 Ботов клиентов: <b>{s['bots_running']}</b> работает, "
+                                       f"<b>{s['bots_pending']}</b> чеков на проверке"))
 
 
 @router.message(Command("admin"))
@@ -1128,7 +1130,8 @@ async def i_wphoto(m, state, d, txt, bot):
         await m.answer("Отправьте фото или <code>-</code>:")
 
 
-BTN_KEYS = list(BUTTONS.keys())
+# у бота клиента нет «🤖 Создать своего бота» — и кнопок этого раздела в оформлении тоже
+BTN_KEYS = [k for k in BUTTONS if not (config.CHILD and (k == "mkbot" or k.startswith("mb_")))]
 
 
 @router.callback_query(F.data.startswith("a:btns:"))
@@ -1406,6 +1409,8 @@ SETTINGS = {
     "ref_percent": ("👥 Реферальный процент", config.REF_PERCENT, "Отправьте процент с покупок рефералов (например 10):"),
     "min_withdraw": ("💸 Минимальный вывод", config.MIN_WITHDRAW, "Отправьте минимальную сумму вывода в ₽:"),
 }
+if not config.CHILD:
+    SETTINGS["bot_price"] = ("🤖 Цена создания бота", config.BOT_PRICE, "Отправьте цену создания бота в ₽ (например 300):")
 
 
 @router.callback_query(F.data == "a:settings")
