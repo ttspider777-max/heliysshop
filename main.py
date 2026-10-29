@@ -11,7 +11,7 @@ import db
 import ext
 import hosting
 import web
-from handlers import admin, admin_extra, builder, legal, shop, user  # noqa: F401  (admin_extra регистрирует свои хендлеры на admin.router)
+from handlers import admin, admin_extra, builder, codex, legal, payments, restock, shop, user  # noqa: F401  (admin_extra и restock регистрируют хендлеры на admin.router)
 from middlewares import UserMiddleware
 
 
@@ -28,7 +28,7 @@ async def main():
     dp.callback_query.outer_middleware(mw)
     # порядок важен: /start и меню -> ввод в админке -> магазин
     # builder — «🤖 Создать своего бота»: до shop, чтобы чек за бота и токен не ушли в обработчики магазина
-    dp.include_routers(user.router, legal.router, admin.router, builder.router, shop.router)
+    dp.include_routers(user.router, legal.router, admin.router, builder.router, codex.router, payments.router, shop.router)
     await bot.set_my_commands([
         BotCommand(command="start", description="Главное меню / Main menu"),
         BotCommand(command="terms", description="Пользовательское соглашение"),

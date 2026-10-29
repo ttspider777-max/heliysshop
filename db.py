@@ -103,6 +103,19 @@ CREATE TABLE IF NOT EXISTS hosted_bots (
     created TEXT,
     started TEXT
 );
+CREATE TABLE IF NOT EXISTS codex (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    status TEXT,
+    method TEXT,
+    price REAL,
+    stars INTEGER,
+    receipt TEXT,
+    act_id TEXT,
+    number TEXT,
+    code TEXT,
+    created TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_items_prod ON items(product_id, sold);
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
 """
@@ -140,7 +153,8 @@ def _migrate():
                             ("products", "ext_price", "REAL DEFAULT 0"),
                             ("products", "ext_stock", "INTEGER DEFAULT 0"),
                             ("users", "agreed", "INTEGER DEFAULT 0"),
-                            ("orders", "qty", "INTEGER DEFAULT 1")):
+                            ("orders", "qty", "INTEGER DEFAULT 1"),
+                            ("products", "photo", "TEXT")):
         cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})")]
         if col not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
@@ -428,7 +442,7 @@ VISIBLE = "status NOT IN ('wait_pay','canceled')"
 
 def last_wait_pay(uid):
     """Последний заказ пользователя, ожидающий чек (за последние сутки)."""
-    return q1("""SELECT * FROM orders WHERE user_id=? AND status='wait_pay'
+    return q1("""SELECT * FROM orders WHERE user_id=? AND status='wait_pay' AND method!='stars'
                  AND created >= datetime('now','localtime','-1 day') ORDER BY id DESC LIMIT 1""", (uid,))
 
 
@@ -609,6 +623,38 @@ def hosted_running():
 def hosted_list():
     return q("""SELECT * FROM hosted_bots WHERE status NOT IN ('wait_pay','canceled','deleted')
                 ORDER BY id DESC LIMIT 60""")
+
+
+def hosted_owner_ids():
+    return [r[0] for r in q("SELECT DISTINCT user_id FROM hosted_bots WHERE status IN ('running','stopped','failed')")]
+
+
+# ---------- «🔐 Верификация Codex» ----------
+# Статусы: wait_pay — ждём оплату, pending — чек на проверке, paid — оплачено, номер ещё не выдан,
+# active — номер выдан, ждём код, code — код выдан, done — подтверждено, canceled — отменено покупателем,
+# rejected — оплату отклонили, refunded — номер не получили, деньги на балансе.
+def create_codex(uid, method, price, stars, status="wait_pay"):
+    return x("INSERT INTO codex(user_id, status, method, price, stars, created) VALUES (?,?,?,?,?,?)",
+             (uid, status, method, price, stars, now()))
+
+
+def codex(vid):
+    return q1("SELECT * FROM codex WHERE id=?", (vid,))
+
+
+def set_codex(vid, **kw):
+    sets = ", ".join(f"{k}=?" for k in kw)
+    x(f"UPDATE codex SET {sets} WHERE id=?", (*kw.values(), vid))
+
+
+def codex_active(uid):
+    """Выданный номер, по которому верификация ещё не закончена."""
+    return q1("SELECT * FROM codex WHERE user_id=? AND status IN ('active','code') ORDER BY id DESC LIMIT 1", (uid,))
+
+
+def codex_wait_pay(uid):
+    return q1("""SELECT * FROM codex WHERE user_id=? AND status='wait_pay' AND method='sbp'
+                 AND created >= datetime('now','localtime','-1 day') ORDER BY id DESC LIMIT 1""", (uid,))
 
 
 # ---------- stats ----------

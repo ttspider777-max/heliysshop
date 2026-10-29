@@ -142,6 +142,7 @@ async def deliver(bot: Bot, oid, content):
     text = t("order_delivered", lang, oid=oid, name=html.escape(o["product_name"]), content=html.escape(content))
     if len(text) <= 4000:
         await safe_send(bot, o["user_id"], text, _menu_kb(lang))
+        await ask_review(bot, o["user_id"])
         return
     # много позиций не влезают в одно сообщение — отправляем файлом
     head = t("order_delivered_file", lang, oid=oid, name=html.escape(o["product_name"]))
@@ -150,6 +151,16 @@ async def deliver(bot: Bot, oid, content):
                                 caption=head, reply_markup=_menu_kb(lang))
     except Exception as e:
         logging.warning("не удалось отправить файл заказа %s: %s", oid, e)
+    await ask_review(bot, o["user_id"])
+
+
+async def ask_review(bot: Bot, uid):
+    """После покупки просим оставить отзыв (ссылка и юзернейм — в ⚙️ Настройки; пустая ссылка — не просим)."""
+    link = db.get_setting("review_url", config.REVIEW_URL)
+    if not link:
+        return
+    user = db.get_setting("review_user", config.REVIEW_USER) or ""
+    await safe_send(bot, uid, t("review_ask", _lang(uid), link=link, user=html.escape(user)))
 
 
 

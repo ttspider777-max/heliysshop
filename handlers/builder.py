@@ -5,6 +5,7 @@
 → админу приходит чек с кнопками ✅ Одобрить / ❌ Отклонить → «пришлите токен» → токен → бот запущен.
 Админ-панель → 🤖 Боты клиентов: список, остановка, запуск, лог, удаление.
 """
+import asyncio
 import html
 import logging
 import re
@@ -19,8 +20,8 @@ import admins
 import config
 import db
 import hosting
-from handlers.admin import B, back, mark_admin_msg, router as admin_router
-from services import safe_send, to_admins, user_link
+from handlers.admin import B, ask, back, done, inp, mark_admin_msg, router as admin_router
+from services import broadcast, safe_send, to_admins, user_link
 from texts import bot_status, bt, fdate, money, t
 from ui import btn, fix_url, kb, menu_row, raw_btn, render
 
@@ -137,7 +138,8 @@ def _bot_receipt_expected(m: Message):
     if not b:
         return False
     o = db.last_wait_pay(m.from_user.id)
-    return o is None or b["created"] >= o["created"]
+    c = db.codex_wait_pay(m.from_user.id)
+    return all(x is None or b["created"] >= x["created"] for x in (o, c))
 
 
 @router.message(StateFilter(None), F.photo | F.document, _bot_receipt_expected)
@@ -287,6 +289,7 @@ async def hb_list(target, prefix=""):
     for b in bots:
         rows.append([B(f"{STATUS_ICON.get(b['status'], '•')} #{b['id']} {('@' + b['username']) if b['username'] else '—'}",
                        f"a:hbv:{b['id']}")])
+    rows.append([B(f"📢 Рассылка владельцам ботов ({len(db.hosted_owner_ids())})", "a:hbbc", style="primary")])
     rows.append(back())
     running = sum(1 for b in bots if b["status"] == "running")
     text = (f"{prefix}🤖 <b>Боты клиентов</b>\n\nРаботает: <b>{running}</b> · всего: <b>{len(bots)}</b>\n"
@@ -322,6 +325,28 @@ async def hb_view(target, bid, prefix=""):
     rows.append([B("🗑 Удалить", f"a:hbd:{bid}", style="danger")])
     rows.append(back("a:hb", "◀️ К списку"))
     await render(target, text, kb(rows))
+
+
+@admin_router.callback_query(F.data == "a:hbbc")
+async def cb_hb_broadcast(call: CallbackQuery, state: FSMContext):
+    n = len(db.hosted_owner_ids())
+    if not n:
+        return await call.answer("Пока нет владельцев ботов", show_alert=True)
+    await ask(call, state, "hbbc", f"📢 <b>Рассылка владельцам ботов</b> ({n} чел.)\n\n"
+                                   "Отправьте сообщение — текст, фото, видео или файл. Его получат все, "
+                                   "кто купил бота (форматирование и премиум-эмодзи сохранятся).", cancel="a:hb")
+
+
+@inp("hbbc")
+async def i_hb_broadcast(m, state, d, txt, bot):
+    ids = db.hosted_owner_ids()
+
+    async def send(b, uid):
+        await b.copy_message(uid, m.chat.id, m.message_id)
+
+    asyncio.create_task(broadcast(bot, ids, send, m.from_user.id))
+    await done(m, state, f"📢 Рассылка запущена на {len(ids)} владельцев ботов. Когда закончится — пришлю отчёт.",
+               kb([back("a:hb", "◀️ К ботам клиентов")]))
 
 
 @admin_router.callback_query(F.data.startswith("a:hbv:"))

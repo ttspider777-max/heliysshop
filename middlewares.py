@@ -45,6 +45,18 @@ class UserMiddleware(BaseMiddleware):
         elif row["username"] != u.username or row["first_name"] != u.first_name:
             db.update_user(u.id, username=u.username, first_name=u.first_name)
 
+        # оплата звёздами уже прошла — её обрабатываем всегда (иначе деньги спишутся, а заказ не выполнится)
+        if isinstance(event, Message) and event.successful_payment:
+            data["user"], data["lang"], data["is_new"] = row, row["lang"] or "ru", is_new
+            return await handler(event, data)
+
+        # технические работы (админ-панель → 🛠 Техработы): пускаем только админов
+        if db.get_setting("maint") == "1" and not admins.is_admin(u.id):
+            if isinstance(event, CallbackQuery):
+                await event.answer()
+            await render(event, t("maint", row["lang"] or "ru"))
+            return
+
         if row["banned"] and not admins.is_admin(u.id):
             if isinstance(event, CallbackQuery):
                 await event.answer(t("banned", row["lang"]), show_alert=True)

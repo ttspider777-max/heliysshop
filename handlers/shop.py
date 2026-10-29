@@ -1,11 +1,13 @@
 import html
 import logging
+import math
+import re
 
 from aiogram import Bot, F, Router
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, Message
 
 import admins
 import config
@@ -160,7 +162,11 @@ def in_stock(p):
     return db.unlimited(p) or db.stock(p["id"]) > 0
 
 
-async def show_product(call: CallbackQuery, pid, kind, lang):
+CAPTION_MAX = 1024  # лимит Telegram на подпись к фото
+
+
+async def show_product(call, pid, kind, lang):
+    """Карточка товара. call — нажатие кнопки или сообщение (/start p_ID из ссылки в рассылке)."""
     p = db.product(pid)
     if not p or not p["active"]:
         return False
@@ -169,11 +175,29 @@ async def show_product(call: CallbackQuery, pid, kind, lang):
     u = db.get_user(uid)
     fav = db.is_fav(uid, pid)
     first = btn("buy", lang, f"buy:{pid}:{kind}") if in_stock(p) else btn("notify", lang, f"nt:{pid}")
-    await render(call, product_text(p, lang, u), kb([
+    text = product_text(p, lang, u)
+    markup = kb([
         [first],
         [btn("fav_del" if fav else "fav_add", lang, f"fv:{pid}:{kind}")],
         [btn("back", lang, f"l:{kind}:0"), btn("main_menu", lang, "menu")],
-    ]))
+    ])
+    photo = p["photo"]
+    if photo and len(re.sub(r"<[^>]+>", "", text)) > CAPTION_MAX:
+        # длинное описание не влезает в подпись: фото отдельным сообщением, под ним — карточка
+        msg = call.message if isinstance(call, CallbackQuery) else None
+        chat_id = msg.chat.id if msg else call.chat.id
+        try:
+            if msg:
+                await msg.delete()
+        except Exception:
+            pass
+        try:
+            await call.bot.send_photo(chat_id, photo)
+        except Exception as e:
+            logging.warning("фото товара %s не отправилось: %s", pid, e)
+        await call.bot.send_message(chat_id, text, reply_markup=markup)
+        return True
+    await render(call, text, markup, photo=photo)
     return True
 
 
@@ -252,6 +276,7 @@ async def show_checkout(call: CallbackQuery, p, kind, qty, lang):
     back_cb = f"qty:{p['id']}:{kind}:{qty}" if is_multi(p) else f"p:{p['id']}:{kind}"
     await render(call, t("choose_pay", lang, name=name, price=money(total), balance=money(u["balance"])), kb([
         [btn("pay_balance", lang, f"pb:{p['id']}:{qty}"), btn("pay_sbp", lang, f"ps:{p['id']}:{qty}")],
+        [btn("pay_stars", lang, f"pz:{p['id']}:{qty}")],
         legal_row(lang),
         [btn("back", lang, back_cb), btn("main_menu", lang, "menu")],
     ]))
@@ -388,6 +413,37 @@ async def cb_pay_sbp(call: CallbackQuery, lang: str):
         [btn("paid", lang, f"paid:{oid}")],
         [btn("cancel", lang, f"oc:{oid}")],
     ]))
+    await call.answer()
+
+
+def stars_for(rub):
+    """Цена в звёздах: рубли / курс звезды (⚙️ Настройки), с округлением вверх, минимум 1 ⭐."""
+    try:
+        rate = float(db.get_setting("star_rate", config.STAR_RATE)) or config.STAR_RATE
+    except ValueError:
+        rate = config.STAR_RATE
+    return max(1, math.ceil(round(rub / rate, 6)))
+
+
+@router.callback_query(F.data.startswith("pz:"))
+async def cb_pay_stars(call: CallbackQuery, lang: str):
+    _, pid, n = parse_cb(call.data, 3)
+    qty = max(int(n or 1), 1)
+    p = db.product(int(pid))
+    err = check_buyable(p, qty)
+    if err:
+        return await call.answer(t(err, lang), show_alert=True)
+    db.release_promo_orders(call.from_user.id)
+    u = db.get_user(call.from_user.id)
+    price, _, code = total_price(u, p, qty)
+    oid = db.create_order(u["id"], p, price, "stars", "wait_pay", code, qty)
+    if code:
+        db.consume_promo(u["id"])
+    stars = stars_for(price)
+    name = p["name"] + (f" × {qty}" if qty > 1 else "")
+    await call.message.answer_invoice(
+        title=name[:32], description=t("stars_desc", lang, oid=oid, name=name)[:255],
+        payload=f"o:{oid}", currency="XTR", prices=[LabeledPrice(label=name[:32], amount=stars)])
     await call.answer()
 
 

@@ -40,6 +40,11 @@ async def cmd_start(m: Message, command: CommandObject, state: FSMContext, lang:
         if rid != m.from_user.id and ref:
             db.update_user(m.from_user.id, referrer_id=rid)
             await safe_send(bot, rid, t("ref_new", ref["lang"]))
+    if arg.startswith("p_") and arg[2:].isdigit():  # ссылка на товар из рассылки о пополнении
+        from handlers.shop import show_product
+        await state.clear()
+        if await show_product(m, int(arg[2:]), "new", lang):
+            return
     await show_main(m, lang, m.from_user.id, state)
 
 

@@ -264,6 +264,72 @@ TEXTS = {
         "🔑 Пришлите новый токен бота @{username}: в @BotFather отправьте /token и выберите этого бота.",
         "🔑 Send the new token for @{username}: in @BotFather send /token and pick this bot.",
     ),
+    # ---------- отзыв, техработы, звёзды, пополнение ----------
+    # {link} — ссылка на отзывы, {user} — юзернейм, который нужно указать (⚙️ Настройки)
+    "review_ask": (
+        "💜 <b>Спасибо за покупку!</b>\n\nОставьте, пожалуйста, отзыв сюда: {link}\nВ отзыве укажите {user} 🙏",
+        "💜 <b>Thank you for your purchase!</b>\n\nPlease leave a review here: {link}\nMention {user} in it 🙏",
+    ),
+    "maint": (
+        "🛠 <b>Бот на технических работах</b>\n" + D + "\nМы скоро вернёмся! Попробуйте, пожалуйста, чуть позже.",
+        "🛠 <b>The bot is under maintenance</b>\n" + D + "\nWe'll be back soon! Please try again a bit later.",
+    ),
+    "stars_desc": ("Заказ #{oid}: {name}", "Order #{oid}: {name}"),
+    "stars_paid": ("⭐ Оплата звёздами получена! Заказ #{oid}.", "⭐ Stars payment received! Order #{oid}."),
+    "stars_fail": ("Заказ недоступен — оплата не прошла, звёзды не списаны.",
+                   "Order unavailable — payment canceled, no stars were charged."),
+    # {name} — товар, {price} — цена, {stock} — остаток, {link} — ссылка на товар
+    "restock_post": (
+        "🔥 <b>ПОПОЛНЕНИЕ!</b> 🔥\n" + D + "\n📦 <b>{name}</b>\n💰 Цена: <b>{price}</b>\n📊 В наличии: <b>{stock}</b>\n\n"
+        "⚡ Разбирают быстро — успейте забрать!\n👉 {link}",
+        "🔥 <b>RESTOCK!</b> 🔥\n" + D + "\n📦 <b>{name}</b>\n💰 Price: <b>{price}</b>\n📊 In stock: <b>{stock}</b>\n\n"
+        "⚡ Selling fast — grab yours!\n👉 {link}",
+    ),
+    # ---------- «🔐 Верификация Codex» ----------
+    "cx_info": (
+        "🔐 <b>Верификация Codex</b>\n" + D + "\nПолучите номер 🇺🇸 <b>+1</b> для подтверждения аккаунта Codex.\n\n"
+        "<b>Как это работает:</b>\n"
+        "1️⃣ Оплатите — <b>{price}</b> или <b>{stars} ⭐</b>\n"
+        "2️⃣ После подтверждения оплаты бот выдаст номер +1\n"
+        "3️⃣ Введите номер в Codex и нажмите «📩 Запросить код»\n"
+        "4️⃣ Введите код в Codex и нажмите «✅ Подтвердить»\n\n"
+        "💰 Ваш баланс: {balance}",
+        "🔐 <b>Codex verification</b>\n" + D + "\nGet a 🇺🇸 <b>+1</b> number to verify your Codex account.\n\n"
+        "<b>How it works:</b>\n"
+        "1️⃣ Pay — <b>{price}</b> or <b>{stars} ⭐</b>\n"
+        "2️⃣ Once the payment is confirmed, the bot gives you a +1 number\n"
+        "3️⃣ Enter the number in Codex and tap «📩 Get code»\n"
+        "4️⃣ Enter the code in Codex and tap «✅ Confirm»\n\n"
+        "💰 Your balance: {balance}",
+    ),
+    "cx_off": ("🔐 Верификация временно недоступна. Загляните чуть позже.",
+               "🔐 Verification is temporarily unavailable. Please check back later."),
+    "cx_pay": (
+        "💳 <b>Оплата верификации Codex</b>\n" + D + "\n🧾 Заявка #{vid}\n💰 Сумма: <b>{price}</b>\n\n📲 Реквизиты:\n{details}\n\n"
+        "Переведите <b>точную сумму</b> и нажмите «Я оплатил».",
+        "💳 <b>Codex verification payment</b>\n" + D + "\n🧾 Request #{vid}\n💰 Amount: <b>{price}</b>\n\n📲 Details:\n{details}\n\n"
+        "Transfer the <b>exact amount</b> and tap «I have paid».",
+    ),
+    "cx_receipt_sent": ("✅ Чек отправлен администратору.\nПосле проверки бот выдаст вам номер +1.",
+                        "✅ Receipt sent to the administrator.\nAfter review the bot will give you a +1 number."),
+    "cx_getting": ("⏳ Оплата подтверждена, получаю номер…", "⏳ Payment confirmed, getting a number…"),
+    "cx_number": (
+        "📱 <b>Ваш номер:</b> <code>+{number}</code>\n" + D + "\n1. Введите этот номер в Codex\n"
+        "2. Когда Codex отправит SMS, нажмите «📩 Запросить код»\n\n⏳ Номер действует около 20 минут.",
+        "📱 <b>Your number:</b> <code>+{number}</code>\n" + D + "\n1. Enter this number in Codex\n"
+        "2. When Codex sends the SMS, tap «📩 Get code»\n\n⏳ The number is valid for about 20 minutes.",
+    ),
+    "cx_wait": ("⏳ Код ещё не пришёл. Подождите 10–20 секунд и нажмите ещё раз.",
+                "⏳ The code hasn't arrived yet. Wait 10–20 seconds and tap again."),
+    "cx_code": ("📩 <b>Ваш код:</b> <code>{code}</code>\n\nВведите его в Codex и нажмите «✅ Подтвердить».",
+                "📩 <b>Your code:</b> <code>{code}</code>\n\nEnter it in Codex and tap «✅ Confirm»."),
+    "cx_done": ("✅ <b>Верификация завершена!</b>", "✅ <b>Verification completed!</b>"),
+    "cx_fail": ("⚠️ Сейчас не удалось получить номер. {price} зачислено на ваш баланс — попробуйте позже или напишите в поддержку.",
+                "⚠️ Couldn't get a number right now. {price} was credited to your balance — try again later or contact support."),
+    "cx_canceled": ("🚫 Номер отменён, {price} зачислено на ваш баланс.", "🚫 Number canceled, {price} credited to your balance."),
+    "cx_rejected": ("❌ Оплата верификации (заявка #{vid}) не подтверждена. Если это ошибка — напишите в поддержку.",
+                    "❌ Verification payment (request #{vid}) was not confirmed. If this is a mistake, contact support."),
+    "cx_code_late": ("Код уже получен — отменить номер нельзя.", "The code was already received — the number can't be canceled."),
 }
 
 # Статусы ботов клиентов («🤖 Создать своего бота»)
@@ -328,14 +394,38 @@ BUTTONS = {
     "mkbot": ("🤖 Создать своего бота", "🤖 Create your own bot", "primary"),
     "mb_read": ("✅ Я прочитал", "✅ I've read it", "success"),
     "mb_token": ("🔑 Новый токен", "🔑 New token", ""),
+    "pay_stars": ("⭐ Звёздами", "⭐ Stars", ""),
+    "codex": ("🔐 Верификация Codex", "🔐 Codex verification", "primary"),
+    "cx_sbp": ("💳 Оплатить по СБП", "💳 Pay via SBP", ""),
+    "cx_stars": ("⭐ Оплатить звёздами", "⭐ Pay with Stars", ""),
+    "cx_balance": ("💰 Оплатить с баланса", "💰 Pay from balance", ""),
+    "cx_get_code": ("📩 Запросить код", "📩 Get code", "primary"),
+    "cx_confirm": ("✅ Подтвердить", "✅ Confirm", "success"),
+    "cx_cancel_num": ("❌ Отменить номер", "❌ Cancel number", "danger"),
+    "open_product": ("🛒 Открыть товар", "🛒 Open product", "success"),
 }
 
-EDITABLE_TEXTS = {
+# Все тексты бота можно поменять в админ-панели → ✏️ Оформление → 📝 Все тексты.
+# Названия в списке — понятные для главных текстов, для остальных — начало самого текста.
+_TEXT_TITLES = {
     "welcome": "👋 Приветствие",
     "catalog_title": "🛍 Заголовок каталога",
+    "mb_info": "🤖 Создать своего бота",
+    "cx_info": "🔐 Верификация Codex",
+    "review_ask": "💜 Просьба об отзыве",
+    "restock_post": "🔥 Рассылка о пополнении",
+    "maint": "🛠 Технические работы",
 }
-if not config.CHILD:
-    EDITABLE_TEXTS["mb_info"] = "🤖 Создать своего бота"
+
+
+def _short_title(key):
+    import re
+    first = re.sub(r"<[^>]+>|\{[^}]+\}", "", TEXTS[key][0]).strip().split("\n")[0].strip()
+    return (first[:32] + "…") if len(first) > 33 else (first or key)
+
+
+EDITABLE_TEXTS = {k: _TEXT_TITLES.get(k) or _short_title(k) for k in TEXTS
+                  if not (config.CHILD and k.startswith("mb_"))}
 
 
 def bot_status(st, lang):

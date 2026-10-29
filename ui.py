@@ -62,7 +62,7 @@ def kb(rows):
 
 # Кнопки, которые админ может скрыть (админ-панель → 🙈 Скрыть кнопки), по разделам бота.
 VIS_GROUPS = (
-    ("🏠 Главное меню", ("catalog",) + (() if config.CHILD else ("mkbot",)) +
+    ("🏠 Главное меню", ("catalog", "codex") + (() if config.CHILD else ("mkbot",)) +
      ("suppliers", "orders", "profile", "refs", "promo", "lang", "reviews", "support", "docs")),
     ("🛍 Каталог", ("hits", "disc", "new", "recent", "search", "fav")),
     ("👤 Профиль и рефералы", ("my_orders", "invite", "withdraw", "refresh")),
@@ -71,6 +71,11 @@ VIS_GROUPS = (
 MAIN_KEYS = VIS_GROUPS[0][1]
 HIDEABLE = tuple(k for _, keys in VIS_GROUPS for k in keys)
 HIDE_ALIAS = {"fav_del": "fav_add"}  # «В избранном» скрывается вместе с «В избранное»
+
+
+def codex_on():
+    """Раздел «🔐 Верификация Codex» включён (у ботов клиентов по умолчанию выключен)."""
+    return db.get_setting("cx_on", "0" if config.CHILD else "1") == "1"
 
 
 def is_hidden(key):
@@ -104,6 +109,7 @@ def main_kb(lang, is_admin=False):
             links.append(btn(key, lang, url=u))
     rows = [
         [btn("catalog", lang, "cat")],
+        [btn("codex", lang, "codex")] if codex_on() else [],  # «🔐 Верификация Codex»
         [] if config.CHILD else [btn("mkbot", lang, "mkbot")],  # «🤖 Создать своего бота»
         [btn("orders", lang, "ord:m:0"), btn("profile", lang, "profile")],
         [btn("suppliers", lang, f"l:c{db.suppliers_cid()}:0"), btn("refs", lang, "refs")],

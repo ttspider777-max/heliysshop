@@ -66,13 +66,17 @@ def admin_kb():
         [B("🎟 Промокоды", "a:promos"), B("✏️ Оформление", "a:design")],
         [B("📣 Обязательная подписка", "a:subs", style="primary"), B("⚙️ Настройки", "a:settings")],
         [B("👮 Админы", "a:adm")] + ([] if config.CHILD else [B("🤖 Боты клиентов", "a:hb")]),
+        [B("🔐 Верификация Codex", "a:cx", style="primary")],
+        [B("🛠 Техработы: ВКЛ — выключить" if db.get_setting("maint") == "1" else "🛠 Включить техработы",
+           "a:maint", style="danger" if db.get_setting("maint") == "1" else None)],
         [B("🏠 Главное меню бота", "menu")],
     ])
 
 
 def admin_text():
     s = db.stats()
-    return (f"⚙️ <b>Админ-панель {html.escape(config.SHOP_NAME)}</b>\n\n👥 Пользователей: <b>{s['users']}</b>\n"
+    maint = "🛠 <b>Бот на техработах</b> — покупатели видят сообщение о техработах.\n\n" if db.get_setting("maint") == "1" else ""
+    return (f"{maint}⚙️ <b>Админ-панель {html.escape(config.SHOP_NAME)}</b>\n\n👥 Пользователей: <b>{s['users']}</b>\n"
             f"🛒 Продаж: <b>{s['orders']}</b> на <b>{money(s['rev'])}</b>\n"
             f"🔎 Чеков на проверке: <b>{s['pending']}</b>\n🛠 Ждут ручной выдачи: <b>{s['manual']}</b>\n"
             f"💸 Заявок на вывод: <b>{s['wd_pending']}</b>"
@@ -84,6 +88,15 @@ def admin_text():
 async def cmd_admin(m: Message, state: FSMContext):
     await state.clear()
     await render(m, admin_text(), admin_kb())
+
+
+@router.callback_query(F.data == "a:maint")
+async def cb_maint(call: CallbackQuery):
+    on = db.get_setting("maint") != "1"
+    db.set_setting("maint", "1" if on else None)
+    await render(call, admin_text(), admin_kb())
+    await call.answer("🛠 Техработы включены — покупатели не могут пользоваться ботом" if on else "✅ Техработы выключены",
+                      show_alert=True)
 
 
 @router.callback_query(F.data == "a:home")
@@ -424,7 +437,8 @@ def admin_product_text(p):
             f"🔧 Выдача: {kind}\n"
             f"{ext_info}"
             f"🔑 Склад: {stock}\n"
-            f"👁 Виден покупателям: {'да' if p['active'] else 'нет'}\n\n"
+            f"👁 Виден покупателям: {'да' if p['active'] else 'нет'}\n"
+            f"🖼 Фото: {'есть' if p['photo'] else 'нет'}\n\n"
             f"📝 Описание:\n{p['description'] or '—'}")
 
 
@@ -432,7 +446,8 @@ async def show_admin_product(target, pid, prefix=""):
     p = db.product(pid)
     if not p:
         return await render(target, "Товар удалён.", kb([back("a:prods:0")]))
-    rows = [[B("✏️ Название", f"a:pe:name:{pid}"), B("📝 Описание", f"a:pe:desc:{pid}")]]
+    rows = [[B("✏️ Название", f"a:pe:name:{pid}"), B("📝 Описание", f"a:pe:desc:{pid}")],
+            [B("🖼 Фото товара", f"a:pe:photo:{pid}")]]
     if p["kind"] == "ext":  # цена внешнего товара = закупка + наценка магазина, меняется в настройках магазина
         rows.append([B("🔌 Настройки магазина (наценка)", f"a:xs:{p['ext_shop']}")])
     else:
@@ -444,6 +459,7 @@ async def show_admin_product(target, pid, prefix=""):
         if db.inf_content(pid):
             rows.append([B("⛔ Выключить бесконечность", f"a:infoff:{pid}", style="danger")])
     rows.append([B("👁 Содержимое товара (что на складе)", f"a:pv:{pid}:0", style="primary")])
+    rows.append([B("📢 Уведомить всех о пополнении", f"a:rsn:{pid}", style="success")])
     kind_btn = [] if p["kind"] == "ext" else [B("🔧 Тип выдачи", f"a:pkind:{pid}")]
     rows += [
         [B("📁 Категория", f"a:pcat:{pid}")] + kind_btn,
@@ -485,6 +501,7 @@ PE_PROMPTS = {
     "name": "✏️ Отправьте новое название." + NAME_HINT,
     "desc": "📝 Отправьте новое описание (форматирование и премиум-эмодзи сохранятся, <code>-</code> — убрать):",
     "price": "💰 Отправьте новую цену (скидка при этом сбросится):",
+    "photo": "🖼 Отправьте <b>фото</b> товара — оно появится в карточке товара.\n<code>-</code> — убрать фото.",
     "disc": "🏷 Отправьте <b>цену со скидкой</b>.\nТекущая цена станет зачёркнутой, товар появится в разделе «Скидки».",
 }
 
@@ -501,6 +518,15 @@ async def i_pedit(m, state, d, txt, bot):
     p = db.product(pid)
     if not p:
         return await done(m, state, "Товар не найден.")
+    if field == "photo":
+        if m.photo:
+            db.update_product(pid, photo=m.photo[-1].file_id)
+        elif txt == "-":
+            db.update_product(pid, photo=None)
+        else:
+            return await m.answer("Отправьте фото (как картинку, не файлом) или <code>-</code>:")
+        await state.clear()
+        return await show_admin_product(m, pid, prefix="✅ Фото сохранено\n\n" if m.photo else "✅ Фото убрано\n\n")
     if field == "name":
         name, icon = split_custom_emoji(m)
         if not name:
@@ -1072,9 +1098,8 @@ async def cb_prbc(call: CallbackQuery, bot: Bot):
 # ======================= оформление =======================
 @router.callback_query(F.data == "a:design")
 async def cb_design(call: CallbackQuery):
-    rows = []
-    for key, title in EDITABLE_TEXTS.items():
-        rows.append([B(f"{title} RU", f"a:te:{key}:ru"), B(f"{title} EN", f"a:te:{key}:en")])
+    rows = [[B("👋 Приветствие RU", "a:te:welcome:ru"), B("👋 Приветствие EN", "a:te:welcome:en")],
+            [B(f"📝 Все тексты бота ({len(EDITABLE_TEXTS)})", "a:txl:0", style="primary")]]
     rows += [
         [B("🖼 Фото приветствия", "a:wph")],
         [B("🔘 Кнопки (текст, премиум-эмодзи, цвет)", "a:btns:0")],
@@ -1083,11 +1108,41 @@ async def cb_design(call: CallbackQuery):
         back(),
     ]
     await render(call, "✏️ <b>Оформление</b>\n\n"
-                       "Здесь можно изменить приветствие, заголовок каталога и любые кнопки бота.\n\n"
+                       "Здесь можно изменить <b>любой текст</b> бота (📝 Все тексты) и любые кнопки.\n\n"
                        "💎 <b>Премиум-эмодзи</b>: просто вставьте их в текст сообщения — бот сохранит их. "
                        "Для кнопок премиум-эмодзи ставится иконкой слева от текста.\n\n"
                        "<i>Важно: премиум-эмодзи в сообщениях и кнопках бота отображаются, если у владельца бота есть Telegram Premium.</i>",
                  kb(rows))
+    await call.answer()
+
+
+TX_PER = 12
+
+
+@router.callback_query(F.data.startswith("a:txl:"))
+async def cb_texts_list(call: CallbackQuery):
+    keys = list(EDITABLE_TEXTS)
+    pages = max(1, (len(keys) + TX_PER - 1) // TX_PER)
+    page = min(max(int(call.data.split(":")[2]), 0), pages - 1)
+    rows = []
+    for k in keys[page * TX_PER:(page + 1) * TX_PER]:
+        changed = db.get_setting(f"t:{k}:ru") is not None or db.get_setting(f"t:{k}:en") is not None
+        rows.append([B(("✏️ " if changed else "") + EDITABLE_TEXTS[k], f"a:tx:{k}")])
+    rows.append(pager("a:txl:", page, pages))
+    rows.append(back("a:design", "◀️ К оформлению"))
+    await render(call, "📝 <b>Все тексты бота</b>\n\nВыберите текст, чтобы изменить его. ✏️ — уже изменён.", kb(rows))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:tx:"))
+async def cb_text_pick(call: CallbackQuery):
+    key = call.data[5:]
+    if key not in EDITABLE_TEXTS:
+        return await call.answer("Текст не найден", show_alert=True)
+    await render(call, f"✏️ <b>{EDITABLE_TEXTS[key]}</b>\n\nСейчас (RU):\n\n{t(key, 'ru')}", kb([
+        [B("🇷🇺 Изменить RU", f"a:te:{key}:ru"), B("🇬🇧 Изменить EN", f"a:te:{key}:en")],
+        back("a:txl:0", "◀️ Ко всем текстам"),
+    ]))
     await call.answer()
 
 
@@ -1097,6 +1152,7 @@ async def cb_text_edit(call: CallbackQuery, state: FSMContext):
     cur = t(key, lang)
     await ask(call, state, "te", f"✏️ <b>{EDITABLE_TEXTS[key]} ({lang.upper()})</b>\n\nСейчас:\n\n{cur}\n\n"
                                  "Отправьте новый текст. Форматирование (жирный, курсив, ссылки) и премиум-эмодзи сохранятся.\n"
+                                 "Слова в фигурных скобках, например <code>{name}</code>, бот подставит сам — оставьте их в тексте.\n"
                                  "<code>-</code> — вернуть текст по умолчанию.",
               cancel="a:design", key=key, lang=lang)
 
@@ -1409,6 +1465,13 @@ SETTINGS = {
     "ref_percent": ("👥 Реферальный процент", config.REF_PERCENT, "Отправьте процент с покупок рефералов (например 10):"),
     "min_withdraw": ("💸 Минимальный вывод", config.MIN_WITHDRAW, "Отправьте минимальную сумму вывода в ₽:"),
 }
+SETTINGS["star_rate"] = ("⭐ Курс звезды, ₽", config.STAR_RATE,
+                         "Сколько рублей стоит 1 звезда? Цена в звёздах = цена в ₽ / курс (например 2):")
+SETTINGS["review_url"] = ("💜 Ссылка для отзывов", config.REVIEW_URL,
+                          "Отправьте ссылку, куда оставлять отзывы после покупки (<code>-</code> — не просить отзыв):")
+SETTINGS["review_user"] = ("👤 Юзернейм в отзыве", config.REVIEW_USER,
+                           "Отправьте юзернейм, который покупатель должен указать в отзыве, например @apfov "
+                           "(<code>-</code> — не указывать):")
 if not config.CHILD:
     SETTINGS["bot_price"] = ("🤖 Цена создания бота", config.BOT_PRICE, "Отправьте цену создания бота в ₽ (например 300):")
 
@@ -1434,7 +1497,11 @@ async def cb_set(call: CallbackQuery, state: FSMContext):
 @inp("set")
 async def i_set(m, state, d, txt, bot):
     key = d["key"]
-    if key == "sbp_details":
+    if key in ("review_url", "review_user") and txt == "-":
+        value = ""
+    elif key == "review_user":
+        value = txt if txt.startswith("@") else "@" + txt
+    elif key == "sbp_details":
         value = m.html_text
     elif key.endswith("_url"):
         value = fix_url(txt)
