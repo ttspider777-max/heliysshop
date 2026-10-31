@@ -163,9 +163,13 @@ async def cb_statuses(call: CallbackQuery, lang: str):
     lines = []
     for s in appcfg.statuses():
         mark = "👉 " if s["name"] == cur["name"] else "▫️ "
-        name = f"{s.get('emoji') or ''} {html.escape(s['name'])}".strip()
-        lines.append(f"{mark}<b>{name}</b> — от {money(s['min'])}" if lang != "en"
-                     else f"{mark}<b>{name}</b> — from {money(s['min'])}")
+        icon = f'<tg-emoji emoji-id="{s["emoji_id"]}">{s.get("emoji") or "⭐"}</tg-emoji>' if s.get("emoji_id") \
+            else (s.get("emoji") or "")
+        name = f"{icon} {html.escape(s['name'])}".strip()
+        d = appcfg.disc_of(s)
+        disc = (f" · скидка {d:g}%" if lang != "en" else f" · {d:g}% off") if d else ""
+        lines.append(f"{mark}<b>{name}</b> — от {money(s['min'])}{disc}" if lang != "en"
+                     else f"{mark}<b>{name}</b> — from {money(s['min'])}{disc}")
     await render(call, t("statuses", lang, list="\n".join(lines)), kb([[btn("back", lang, "profile")]]))
     await call.answer()
 

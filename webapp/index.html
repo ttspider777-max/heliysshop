@@ -337,13 +337,111 @@ label.btn input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: p
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; transition-duration: .001s !important; }
 }
+
+/* ======================= редизайн v7: главная, карточки товаров, профиль, цвета ======================= */
+:root { --accent2: color-mix(in srgb, var(--accent) 55%, #a855f7); --grad: linear-gradient(135deg, var(--accent), var(--accent2)); }
+.btn { background: var(--grad); }
+.btn.ghost { background: var(--surface-2); }
+/* поиск + избранное */
+.searchrow { display: flex; gap: 10px; margin-top: 14px; }
+.searchrow .search { margin-top: 0; flex: 1; height: 50px; border-radius: 16px; cursor: text; }
+.searchrow .iconbtn { width: 50px; height: 50px; border-radius: 16px; cursor: pointer; }
+.fav-btn.on { color: #ff4d5e; border-color: color-mix(in srgb, #ff4d5e 45%, var(--line)); }
+.fav-btn.on .ic { fill: currentColor; }
+.sx { width: 32px; height: 32px; display: grid; place-items: center; color: var(--muted); border-radius: 50%; flex: none; }
+/* категории */
+.chips { margin-top: 12px; padding-bottom: 4px; }
+.chip { height: 42px; border-radius: 999px; padding: 0 16px 0 12px; gap: 8px; cursor: pointer; }
+.chip:first-child { padding-left: 18px; }
+.chip.on { background: var(--grad); color: var(--accent-ink); }
+.chip .ci { width: 24px; height: 24px; display: grid; place-items: center; font-size: 17px; border-radius: 7px; overflow: hidden; flex: none; }
+.chip .ci img { width: 100%; height: 100%; object-fit: cover; }
+.chip .ci .pe { width: 22px; height: 22px; }
+.chip.on .ic { color: currentColor; }
+.list-title { margin: 18px 2px 0; font-weight: 800; font-size: 17px; display: flex; align-items: center; gap: 8px; }
+#homeGrid { margin-top: 14px; }
+/* карточка товара */
+.pcard { position: relative; text-align: left; padding: 14px; border-radius: 22px; background: var(--surface); border: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 8px; min-height: 212px; cursor: pointer; transition: border-color .2s, transform .12s; }
+.pcard:active { transform: scale(.985); }
+.pc-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
+.pc-ic { width: 64px; height: 64px; border-radius: 16px; overflow: hidden; display: grid; place-items: center; background: var(--surface-2);
+  font-size: 34px; color: var(--muted); position: relative; flex: none; }
+.pc-ic img, .pc-ic video { width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; }
+.pc-ic .pe { width: 42px; height: 42px; }
+.pc-ic .ic { width: 30px; height: 30px; opacity: .6; }
+.pc-top .tag { position: static; }
+.pc-name { font-weight: 800; font-size: 15px; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.5em; margin-top: auto; }
+.pc-row { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.pc-price { font: 700 20px/1.1 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pc-price small { font: 600 12px var(--font); color: var(--muted); }
+.pc-cnt { font-size: 12.5px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.pc-old { font-size: 12px; color: var(--muted); margin-top: -6px; }
+.pc-bar { height: 4px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.pc-bar i { display: block; height: 100%; border-radius: 99px; background: var(--grad); }
+.pcard.out { border-color: rgba(229, 72, 77, .6); }
+.pcard.out .pc-ic img, .pcard.out .pc-ic video { filter: grayscale(.7); opacity: .6; }
+.pcard.out .pc-price { color: var(--muted); }
+/* профиль */
+.ucard { padding: 18px; display: flex; flex-direction: column; gap: 16px; border-radius: 24px;
+  background: radial-gradient(120% 100% at 100% 0%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 62%), var(--surface); }
+.ucard .uh { display: flex; gap: 12px; align-items: center; }
+.ucard .ava { width: 54px; height: 54px; }
+.ucard h2 { margin: 0; font: 700 18px/1.2 var(--display); }
+.ucard .sub { color: var(--muted); font-size: 13.5px; }
+.ucard .lbl2 { color: var(--muted); font-size: 13px; font-weight: 600; }
+.ucard .bal { font: 700 42px/1 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin-top: 4px; }
+.ucard .bal small { font-size: 22px; color: var(--muted); margin-left: 4px; }
+.tiles2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.tile { display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 0 16px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line);
+  font-weight: 800; font-size: 15px; text-align: left; cursor: pointer; transition: border-color .2s; }
+.tile[disabled] { opacity: .45; }
+.tile .ti { width: 28px; height: 28px; display: grid; place-items: center; font-size: 22px; color: var(--accent); flex: none; }
+.tile .ti .ic { width: 22px; height: 22px; }
+.tile .ti .pe { width: 26px; height: 26px; }
+.stile { padding: 14px; text-align: left; display: flex; flex-direction: column; gap: 3px; min-height: 100px; border-radius: 20px; }
+button.stile { cursor: pointer; }
+.stile span { color: var(--muted); font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.stile b { font: 700 19px/1.2 var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.stile small { color: var(--muted); font-size: 12px; margin-top: auto; }
+.sec { margin: 26px 2px 12px; font: 700 20px/1.2 var(--display); letter-spacing: -.01em; }
+.stcard { padding: 16px; border-radius: 22px; }
+.st-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.st-tile { padding: 12px 6px; border-radius: 16px; background: var(--surface-2); border: 1px solid transparent; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--muted); }
+.st-tile .em { font-size: 26px; height: 34px; display: grid; place-items: center; }
+.st-tile .em .pe { width: 32px; height: 32px; }
+.st-tile b { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.st-tile small { font-weight: 800; font-size: 12.5px; }
+.st-tile.cur { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface-2)); }
+.st-tile.cur small { color: var(--accent); }
+.st-tile.done small { color: var(--text); }
+.bar i { background: var(--grad); }
+/* выбор цвета */
+.palettes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 8px; }
+.pal { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; color: var(--muted); min-height: 44px; cursor: pointer; line-height: 1.2; text-align: center; }
+.pal i { width: 46px; height: 46px; border-radius: 50%; display: block; border: 2px solid var(--line); background: linear-gradient(135deg, #05060a 0 48%, var(--a) 52% 100%); transition: box-shadow .2s, border-color .2s; }
+.pal.shop i { background: conic-gradient(from 200deg, var(--a), color-mix(in srgb, var(--a) 40%, #05060a), var(--a)); }
+.pal.on i { border-color: var(--text); box-shadow: 0 0 0 3px color-mix(in srgb, var(--a) 45%, transparent); }
+.pal.on { color: var(--text); }
+/* бонус */
+.bonus { border-radius: 20px; padding: 14px 14px 14px 16px; }
+.bonus .btn { border-radius: 999px; height: 42px; padding: 0 18px; }
+@media (hover: hover) {
+  .pcard:hover, .tile:hover, button.stile:hover, .chip:hover { border-color: color-mix(in srgb, var(--text) 18%, var(--line)); }
+}
+@media (min-width: 700px) {
+  .grid.prods { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .palettes { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+}
+@media (max-width: 360px) {
+  .pc-price { font-size: 17px; }
+  .ucard .bal { font-size: 36px; }
+}
 </style>
 </head>
 <body>
 <div class="wrap">
   <section class="screen" id="s-home"></section>
-  <section class="screen" id="s-catalog"></section>
-  <section class="screen" id="s-list"></section>
   <section class="screen" id="s-product"></section>
   <section class="screen" id="s-orders"></section>
   <section class="screen" id="s-profile"></section>
@@ -361,7 +459,7 @@ label.btn input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: p
 const tg = window.Telegram && window.Telegram.WebApp;
 const BASE = location.pathname.replace(/\/app\/?$/, "/").replace(/\/?$/, "/");
 const DEMO = !(tg && tg.initData) && location.hash.includes("demo");
-const S = { shop: null, user: null, cats: [], stack: [], tab: "home", lists: {}, product: null, qty: 1, emoji: {} };
+const S = { shop: null, user: null, cats: [], stack: [], tab: "home", homeKind: "all", product: null, qty: 1, emoji: {} };
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
@@ -529,13 +627,32 @@ function currentTheme() {
   if (pick === "auto") return (tg && tg.colorScheme) || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
   return pick;
 }
+/* Цвет оформления выбирает сам покупатель (Профиль → Цвет оформления), выбор хранится на устройстве.
+   «Как в магазине» — акцент, который задал админ (или цвет сезона). */
+const PALETTES = [
+  { id: "shop", name: "Как в магазине" },
+  { id: "blue", name: "Чёрно-синий", a: "#3b82f6", b: "#6366f1", bg: "#03050c", s: "#0a0f1c", s2: "#111829", s3: "#1a2338", line: "#1c2540" },
+  { id: "cyan", name: "Чёрно-голубой", a: "#22d3ee", b: "#3b82f6", bg: "#020708", s: "#08121a", s2: "#0e1b24", s3: "#16262f", line: "#183039" },
+  { id: "purple", name: "Фиолетовый", a: "#a855f7", b: "#ec4899", bg: "#06030b", s: "#110a1a", s2: "#191026", s3: "#241834", line: "#2a1c3c" },
+  { id: "green", name: "Изумрудный", a: "#22c55e", b: "#14b8a6", bg: "#020704", s: "#08130c", s2: "#0e1c13", s3: "#16271c", line: "#193020" },
+  { id: "red", name: "Красный", a: "#ef4444", b: "#f97316", bg: "#0a0303", s: "#170a0a", s2: "#211010", s3: "#2c1717", line: "#361b1b" },
+  { id: "pink", name: "Розовый", a: "#ec4899", b: "#a855f7", bg: "#0a0307", s: "#170a12", s2: "#22101a", s3: "#2d1724", line: "#371b2b" },
+  { id: "gold", name: "Золотой", a: "#eab308", b: "#f97316", bg: "#080602", s: "#15110a", s2: "#1f1910", s3: "#2a2217", line: "#33291a" },
+];
+const PAL_VARS = { bg: "--bg", s: "--surface", s2: "--surface-2", s3: "--surface-3", line: "--line" };
 function applyTheme() {
   const th = currentTheme();
   const root = document.documentElement;
   root.dataset.theme = th;
-  const accent = (S.shop && S.shop.accent) || "#ff7a1a";
+  const pal = PALETTES.find((p) => p.id === lsGet("palette")) || PALETTES[0];
+  const accent = pal.a || (S.shop && S.shop.accent) || "#ff7a1a";
   root.style.setProperty("--accent", accent);
+  root.style.setProperty("--accent2", pal.b || `color-mix(in srgb, ${accent} 55%, #a855f7)`);
   root.style.setProperty("--accent-ink", inkFor(accent));
+  // фон и поверхности палитры — только в тёмном режиме; в светлом меняется лишь акцент
+  for (const [k, v] of Object.entries(PAL_VARS)) {
+    if (th === "dark" && pal[k]) root.style.setProperty(v, pal[k]); else root.style.removeProperty(v);
+  }
   const wall = S.shop && S.shop.wall;
   if (wall) {
     const ov = th === "dark" ? "rgba(5,6,8,.72)" : "rgba(235,238,243,.78)";
@@ -545,7 +662,7 @@ function applyTheme() {
     root.style.setProperty("--wall", wallSvg(th === "dark" ? "rgba(255,255,255,0.05)" : "rgba(30,40,60,0.08)"));
     root.style.setProperty("--wall-size", "320px 320px");
   }
-  const bg = th === "dark" ? "#07080a" : "#e7ebf0";
+  const bg = th === "dark" ? (pal.bg || "#07080a") : "#e7ebf0";
   try { tg && tg.setHeaderColor && tg.setHeaderColor(bg); tg && tg.setBackgroundColor && tg.setBackgroundColor(bg); tg && tg.setBottomBarColor && tg.setBottomBarColor(bg); } catch (e) {}
 }
 
@@ -600,11 +717,12 @@ function fxHtml(season) {
 }
 
 /* ---------- навигация ---------- */
-const TABS = [["home", "tab_home", "app_home", "🏠"], ["catalog", "tab_catalog", "app_catalog", "🛍"], ["orders", "tab_orders", "app_orders", "📦"], ["profile", "tab_profile", "app_profile", "👤"]];
+const TABS = [["home", "tab_home", "app_home"], ["orders", "tab_orders", "app_orders"], ["profile", "tab_profile", "app_profile"]];
+const plain = (s) => String(s || "").replace(/<[^>]+>/g, "");
 function renderNav() {
   const nav = $("#nav");
   nav.hidden = false;
-  nav.innerHTML = '<div class="in">' + TABS.map(([id, icon, txt, fb]) => `<button data-tab="${id}" class="${S.tab === id && !S.stack.length ? "on" : ""}"><span class="ni">${ic(icon, fb)}</span><span>${T(txt)}</span></button>`).join("") + "</div>";
+  nav.innerHTML = '<div class="in">' + TABS.map(([id, icon, txt]) => `<button data-tab="${id}" class="${S.tab === id && !S.stack.length ? "on" : ""}"><span class="ni">${ic(icon)}</span><span>${T(txt)}</span></button>`).join("") + "</div>";
   hydrateEmoji(nav);
 }
 function show(id) {
@@ -621,22 +739,22 @@ function back() {
   if (top) render(top[0], top[1]); else render(S.tab);
 }
 async function render(name, arg) {
+  // «list» и «catalog» остались для совместимости (админ-режим, старые ссылки): это главная с выбранной категорией
+  if (name === "list" || name === "catalog") { if (arg) S.homeKind = arg; S.tab = "home"; S.stack = []; name = "home"; }
   if (name === "home") renderHome();
-  else if (name === "catalog") renderCatalog();
   else if (name === "orders") await renderOrders();
   else if (name === "profile") renderProfile();
-  else if (name === "list") await renderList(arg);
   else if (name === "product") await renderProduct(arg);
-  show(name === "list" || name === "product" ? name : name);
+  show(name);
 }
 
-/* ---------- главная ---------- */
+/* ---------- верхняя карточка (без изменений дизайна) ---------- */
 function heroHtml() {
   const sh = S.shop, u = S.user;
   const bg = sh.bg ? (sh.bg.type === "photo" ? `<img src="${mediaUrl(sh.bg)}" alt="">` : `<video src="${mediaUrl(sh.bg)}" autoplay loop muted playsinline></video>`) : "";
   const badgeIcon = sh.icons.badge && sh.icons.badge.id ? ic("badge") : (SEASON_ICON[sh.season] || "");
-  const badge = sh.badge ? `<span class="badge"><span class="bi">${badgeIcon}</span>${esc(sh.badge)}</span>` : "";
-  const initials = esc((sh.title || "S").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2).toUpperCase());
+  const badge = sh.badge ? `<span class="badge"><span class="bi">${badgeIcon}</span>${sh.badge}</span>` : "";
+  const initials = esc((sh.title_plain || plain(sh.title) || "S").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2).toUpperCase());
   const logo = sh.logo ? `<span class="logo"><img src="${mediaUrl(sh.logo)}" alt=""></span>` : `<span class="logo">${initials}</span>`;
   const st = u.status || {};
   const av = u.photo_url ? `<img src="${esc(u.photo_url)}" alt="">` : (st.emoji_id ? pe(st.emoji_id, st.emoji) : esc(st.emoji || "🏅"));
@@ -644,11 +762,11 @@ function heroHtml() {
   return `<div class="hero ${sh.bg ? "" : "no-photo"}" style="--fx:${sh.season === "halloween" ? "#ff7a1a" : "var(--accent)"}">
     <div class="hero-media">${bg}</div>
     <div class="fx">${fxHtml(sh.season)}</div>
-    <div class="hero-top"><div class="hero-title">${esc(sh.title)}</div>${badge}${logo}</div>
+    <div class="hero-top"><div class="hero-title">${sh.title}</div>${badge}${logo}</div>
     <div class="hero-bottom">
       <div class="hero-label">${T("app_balance")}</div>
       <div class="balance-row"><div class="balance">${Number(whole).toLocaleString("ru-RU")}${frac ? "," + frac : ""}<small>₽</small></div>
-        <button class="plus" data-act="topup" aria-label="${esc(T("app_topup").replace(/<[^>]+>/g, ""))}">${svg("plus")}</button></div>
+        <button class="plus" data-act="topup" aria-label="${esc(plain(T("app_topup")))}">${svg("plus")}</button></div>
       <button class="status-pill" data-act="profile"><span class="av">${av}</span>${st.emoji_id && u.photo_url ? pe(st.emoji_id, st.emoji) : ""}${esc(st.name || "")}</button>
     </div>
     ${isAdmin() ? `<label class="hero-edit">${svg("camera", "sm")}${L("Фото", "Photo")}<input type="file" accept="image/*,video/*" data-upload="app_bg" data-id="0" data-direct="1" aria-label="photo"></label>` : ""}</div>`;
@@ -656,84 +774,77 @@ function heroHtml() {
 function bonusHtml() {
   const b = S.shop.bonus; if (!b.on) return "";
   const left = S.user.bonus_left;
-  const sub = left > 0 ? T("app_bonus_wait", { left: fmtLeft(left) }) : T("app_bonus_ready", { amount: money(b.amount) });
-  return `<div class="card bonus"><div class="ico">${ic("bonus", "🎁")}</div><div class="txt"><b>${T("app_bonus_title")}</b><span id="bonusSub">${sub}</span></div>
+  const sub = left > 0 ? T("app_bonus_wait", { left: fmtLeft(left) }) : T("app_bonus_card", { amount: money(b.amount) });
+  return `<div class="card bonus"><div class="ico">${ic("bonus")}</div><div class="txt"><b>${T("app_bonus_title")}</b><span id="bonusSub">${sub}</span></div>
     <button class="btn sm" data-act="bonus" ${left > 0 ? "disabled" : ""}>${T("app_bonus_btn")}</button></div>`;
 }
 const fmtLeft = (sec) => { const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60); return lang() === "en" ? `${h}h ${m}m` : `${h} ч ${m} мин`; };
-function chipsHtml(active) {
-  const c = [["hits", "app_hits", "🔥"], ["disc", "app_disc", "🏷"], ["new", "app_new", "🆕"], ["fav", "app_fav", "❤️"]];
-  return `<div class="chips">${c.map(([k, t, e]) => `<button class="chip ${active === k ? "on" : ""}" data-list="${k}">${ic(k, e)} ${T(t)}</button>`).join("")}
-    ${S.shop.has_suppliers ? `<button class="chip" data-list="c${S.shop.suppliers_cid}">${svg("store")} ${L("Поставщики", "Suppliers")}</button>` : ""}</div>`;
-}
-function catsHtml() {
-  if (!S.cats.length) return emptyHtml();
-  return `<div class="grid">${S.cats.map((c) => {
-    const m = c.media ? (c.media.type === "photo" ? `<img src="${mediaUrl(c.media)}" alt="" loading="lazy">` : `<video src="${mediaUrl(c.media)}" autoplay loop muted playsinline></video>`)
-      : `<span class="ce">${c.emoji_id ? pe(c.emoji_id, firstEmoji(c.name)) : (firstEmoji(c.name) ? esc(firstEmoji(c.name)) : svg("bag", "lg"))}</span>`;
-    return `<button class="cat" data-list="c${c.id}"><span class="cm">${m}</span>
-      <span class="cb"><div><b>${esc(stripEmoji(c.name))}</b><span class="n">${c.count} ${plural(c.count)}</span></div>${svg("right")}</span></button>`;
-  }).join("")}</div>`;
-}
 const EMO_RE = /^(\p{Extended_Pictographic}|\p{Regional_Indicator}{2})(️|‍\p{Extended_Pictographic})*\s*/u;
 const firstEmoji = (s) => { const m = String(s || "").match(EMO_RE); return m ? m[0].trim() : ""; };
 const stripEmoji = (s) => String(s || "").replace(EMO_RE, "") || s;
-function plural(n) {
-  if (lang() === "en") return n === 1 ? "product" : "products";
-  const a = n % 10, b = n % 100;
-  return a === 1 && b !== 11 ? "товар" : a >= 2 && a <= 4 && (b < 12 || b > 14) ? "товара" : "товаров";
-}
-const emptyHtml = () => `<div class="empty"><div class="ei">${ic("empty", "🤷")}</div>${T("app_empty")}</div>`;
-function renderHome() {
-  const adminStrip = isAdmin() ? `<div class="admin-strip"><button class="btn ghost" data-act="edit-shop">${svg("pencil", "sm")} ${L("Витрина", "Storefront")}</button>
-    <button class="btn ghost" data-act="admin-hint">${svg("info", "sm")} ${L("Как редактировать", "How to edit")}</button></div>` : "";
-  $("#s-home").innerHTML = `${heroHtml()}${adminStrip}${bonusHtml()}${chipsHtml()}
-    <button class="search" data-act="search"><span>${ic("search", "🔎")}</span><span class="muted">${T("app_search")}</span></button>
-    <div class="section-title">${T("app_categories")}<small>${S.cats.length}</small></div>${catsHtml()}`;
-  hydrateEmoji($("#s-home"));
-}
+const emptyHtml = () => `<div class="empty"><div class="ei">${ic("empty")}</div>${T("app_empty")}</div>`;
 
-/* ---------- каталог и списки ---------- */
-function renderCatalog() {
-  $("#s-catalog").innerHTML = `<div class="topbar"><h2>${T("app_catalog")}</h2></div>
-    <label class="search"><span>${ic("search", "🔎")}</span><input id="q" type="search" enterkeyhint="search" placeholder="${esc(T("app_search").replace(/<[^>]+>/g, ""))}"></label>
-    ${chipsHtml()}<div class="section-title">${T("app_categories")}<small>${S.cats.length}</small></div>${catsHtml()}`;
-  const q = $("#q");
-  q.addEventListener("keydown", (e) => { if (e.key === "Enter" && q.value.trim()) { q.blur(); push("list", "srch:" + q.value.trim()); } });
-  hydrateEmoji($("#s-catalog"));
+/* ---------- главная: поиск, категории, товары ---------- */
+function catIcon(c) {
+  if (c.media && c.media.type === "photo") return `<span class="ci"><img src="${mediaUrl(c.media)}" alt="" loading="lazy"></span>`;
+  if (c.emoji_id) return `<span class="ci">${pe(c.emoji_id, firstEmoji(c.name))}</span>`;
+  const e = firstEmoji(c.name);
+  return e ? `<span class="ci">${esc(e)}</span>` : "";
 }
-function listTitle(kind) {
-  if (kind.startsWith("srch:")) return svg("search") + esc(kind.slice(5));
-  const map = { hits: ["hits", "app_hits", "🔥"], disc: ["disc", "app_disc", "🏷"], new: ["new", "app_new", "🆕"], fav: ["fav", "app_fav", "❤️"] };
-  if (map[kind]) return `${ic(map[kind][0], map[kind][2])} ${T(map[kind][1])}`;
-  const c = S.cats.find((x) => "c" + x.id === kind);
-  if (c) return (c.emoji_id ? pe(c.emoji_id, firstEmoji(c.name)) + " " + esc(stripEmoji(c.name)) : esc(c.name));
-  return kind === "c" + S.shop.suppliers_cid ? svg("store") + L("Поставщики", "Suppliers") : "";
+function chipsHtml() {
+  const k = S.homeKind;
+  const chip = (kind, label, icon = "") => `<button class="chip ${k === kind ? "on" : ""}" data-kind="${kind}">${icon}<span>${label}</span></button>`;
+  return `<div class="chips" id="chips">${chip("all", T("app_all"))}${S.cats.map((c) => chip("c" + c.id, esc(stripEmoji(c.name)), catIcon(c))).join("")}
+    ${S.shop.has_suppliers ? chip("c" + S.shop.suppliers_cid, T("app_suppliers"), `<span class="ci">${svg("store", "sm")}</span>`) : ""}</div>`;
 }
-function prodCard(p) {
-  const m = p.media ? (p.media.type === "photo" ? `<img src="${mediaUrl(p.media)}" alt="" loading="lazy">` : `<video src="${mediaUrl(p.media)}" autoplay loop muted playsinline></video>`) : (p.emoji_id ? pe(p.emoji_id, firstEmoji(p.name) || "") : (firstEmoji(p.name) ? esc(firstEmoji(p.name)) : svg("bag")));
+function renderHome() {
+  const k = S.homeKind || "all";
+  const q = k.startsWith("srch:") ? k.slice(5) : "";
+  const adminStrip = isAdmin() ? `<div class="admin-strip"><button class="btn ghost" data-act="edit-shop">${svg("pencil", "sm")} ${L("Витрина", "Storefront")}</button>
+    ${/^c\d+$/.test(k) ? `<button class="btn ghost" data-act="edit-cat" data-cid="${k.slice(1)}">${svg("pencil", "sm")} ${L("Категория", "Category")}</button>` : `<button class="btn ghost" data-act="admin-hint">${svg("info", "sm")} ${L("Как редактировать", "How to edit")}</button>`}</div>` : "";
+  const title = k === "fav" ? `${ic("fav")} ${T("app_fav")}` : q ? `${svg("search")} ${T("app_search_res", { q })}` : "";
+  $("#s-home").innerHTML = `${heroHtml()}${adminStrip}
+    <div class="searchrow">
+      <label class="search"><span>${ic("search")}</span><input id="q" type="search" enterkeyhint="search" value="${esc(q)}" placeholder="${esc(plain(T("app_search")))}" aria-label="${esc(plain(T("app_search")))}">
+        ${q ? `<button class="sx" data-kind="all" aria-label="clear">${svg("x", "sm")}</button>` : ""}</label>
+      <button class="iconbtn fav-btn ${k === "fav" ? "on" : ""}" data-kind="${k === "fav" ? "all" : "fav"}" aria-label="${esc(plain(T("app_fav")))}">${svg("heart")}</button>
+    </div>
+    ${chipsHtml()}
+    ${title ? `<div class="list-title">${title}</div>` : ""}
+    <div id="homeGrid"><div class="grid prods">${'<div class="skeleton" style="height:212px"></div>'.repeat(4)}</div></div>`;
+  const inp = $("#q");
+  inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { const v = inp.value.trim(); inp.blur(); setKind(v ? "srch:" + v : "all"); } });
+  hydrateEmoji($("#s-home"));
+  const on = $("#chips .chip.on"); if (on) on.scrollIntoView({ block: "nearest", inline: "center" });
+  loadGrid(k);
+}
+function setKind(kind) { S.homeKind = kind; haptic(); if (S.tab !== "home" || S.stack.length) { S.tab = "home"; S.stack = []; } render("home"); }
+async function loadGrid(kind) {
+  const token = (S.gridToken = (S.gridToken || 0) + 1);
+  const qs = kind.startsWith("srch:") ? `srch&q=${encodeURIComponent(kind.slice(5))}` : kind;
+  try {
+    const r = await api("list?kind=" + qs);
+    if (token !== S.gridToken || !$("#homeGrid")) return;
+    const max = Math.max(1, ...r.items.map((p) => (p.stock > 0 ? p.stock : 0)));
+    $("#homeGrid").innerHTML = r.items.length ? `<div class="grid prods">${r.items.map((p) => prodCard(p, max)).join("")}</div>` : emptyHtml();
+    hydrateEmoji($("#homeGrid"));
+  } catch (e) { toast(e.message || "Ошибка"); }
+}
+function prodCard(p, max = 1) {
+  const media = p.media ? (p.media.type === "photo" ? `<img src="${mediaUrl(p.media)}" alt="" loading="lazy">` : `<video src="${mediaUrl(p.media)}" autoplay loop muted playsinline></video>`)
+    : (p.emoji_id ? pe(p.emoji_id, firstEmoji(p.name) || "") : (firstEmoji(p.name) ? esc(firstEmoji(p.name)) : svg("bag")));
   const out = p.out || p.stock === 0;
   const pct = p.old_price ? Math.round((1 - p.price / p.old_price) * 100) : 0;
   const tag = out ? `<span class="tag out">${T("app_out")}</span>` : pct ? `<span class="tag">−${pct}%</span>` : "";
-  const stock = out ? T("app_out") : p.stock < 0 ? T("app_in_stock") : `${T("app_in_stock")}: ${p.stock}`;
-  const each = p.by_qty ? `<small> / ${L("шт.", "pc.")}</small>` : "";
-  return `<button class="prod${out ? " out" : ""}" data-prod="${p.id}"><div class="pm">${m}${tag}</div><div class="pi">
-    <div class="pn">${esc(stripEmoji(p.name))}</div><div class="price">${money(p.price)}${each}${p.old_price ? `<s>${money(p.old_price)}</s>` : ""}</div>
-    <div class="stock">${stock}</div></div></button>`;
-}
-async function renderList(kind) {
-  const el = $("#s-list");
-  const catEdit = isAdmin() && /^c\d+$/.test(kind) ? `<button class="iconbtn" data-act="edit-cat" data-cid="${kind.slice(1)}" aria-label="edit">${svg("pencil")}</button>` : "";
-  el.innerHTML = `<div class="topbar"><button class="iconbtn" data-act="back" aria-label="back">${svg("left")}</button><h2>${listTitle(kind)}</h2>${catEdit}</div>
-    <div class="grid prods">${'<div class="skeleton" style="height:230px"></div>'.repeat(4)}</div>`;
-  hydrateEmoji(el);
-  try {
-    const q = kind.startsWith("srch:") ? `srch&q=${encodeURIComponent(kind.slice(5))}` : kind;
-    const r = await api("list?kind=" + q);
-    const items = r.items;
-    el.querySelector(".grid").outerHTML = items.length ? `<div class="grid prods">${items.map(prodCard).join("")}</div>` : emptyHtml();
-    hydrateEmoji(el);
-  } catch (e) { toast(e.message || "Ошибка"); }
+  const count = out ? T("app_out") : p.stock < 0 ? "∞" : T("app_pcs", { n: p.stock });
+  const bar = out ? 0 : p.stock < 0 ? 100 : Math.max(6, Math.round(p.stock / max * 100));
+  const each = p.by_qty ? `<small> / ${T("app_per_pc")}</small>` : "";
+  return `<button class="pcard${out ? " out" : ""}" data-prod="${p.id}">
+    <div class="pc-top"><span class="pc-ic">${media}</span>${tag}</div>
+    <div class="pc-name">${esc(stripEmoji(p.name))}</div>
+    <div class="pc-row"><span class="pc-price">${money(p.price)}${each}</span><span class="pc-cnt">${out ? "" : count}</span></div>
+    ${p.old_price && !out ? `<s class="pc-old">${money(p.old_price)}</s>` : ""}
+    <div class="pc-bar" aria-hidden="true"><i style="width:${bar}%"></i></div></button>`;
 }
 
 /* ---------- товар ---------- */
@@ -749,18 +860,18 @@ async function renderProduct(pid) {
     : (p.emoji_id ? pe(p.emoji_id, firstEmoji(p.name) || "") : (firstEmoji(p.name) ? esc(firstEmoji(p.name)) : svg("bag")));
   const out = p.out || p.stock === 0;
   const stockPill = out ? `<span class="pill no"><span class="dot"></span>${T("app_out")}</span>` : `<span class="pill ok"><span class="dot"></span>${T("app_in_stock")}${p.stock > 0 ? ": " + p.stock : ""}</span>`;
-  const big = p.by_qty || minQ > 1;  // по количеству — крупные шаги ±10
-  const qty = p.multi && !out ? `<div class="qty">${big ? `<button data-q="-10" aria-label="minus 10" style="width:auto;padding:0 10px">−10</button>` : ""}<button data-q="-1" aria-label="minus">${svg("minus")}</button><input id="qty" inputmode="numeric" value="${S.qty}"><button data-q="1" aria-label="plus">${svg("plus")}</button>${big ? `<button data-q="10" aria-label="plus 10" style="width:auto;padding:0 10px">+10</button>` : ""}
-    <div class="total"><span>${L("Итого", "Total")}</span><b class="price" id="total">${startTotal}</b></div></div>
-    ${minQ > 1 ? `<div class="minq">${L("Минимум", "Minimum")} — ${minQ} ${L("шт.", "pcs.")} · ${money(p.promo_price || p.price)} ${L("за 1 шт.", "per pc.")}</div>` : ""}` : "";
+  const big = p.by_qty || minQ > 1;
+  const qty = p.multi && !out ? `<div class="qty">${big ? `<button data-q="-10" aria-label="minus 10" style="width:auto;padding:0 10px">−10</button>` : ""}<button data-q="-1" aria-label="minus">${svg("minus")}</button><input id="qty" inputmode="numeric" value="${S.qty}" aria-label="qty"><button data-q="1" aria-label="plus">${svg("plus")}</button>${big ? `<button data-q="10" aria-label="plus 10" style="width:auto;padding:0 10px">+10</button>` : ""}
+    <div class="total"><span>${T("app_total")}</span><b class="price" id="total">${startTotal}</b></div></div>
+    ${minQ > 1 ? `<div class="minq">${T("app_min_qty", { n: minQ, price: money(p.promo_price || p.price) })}</div>` : ""}` : "";
   el.innerHTML = `<div class="topbar"><button class="iconbtn" data-act="back" aria-label="back">${svg("left")}</button><h2>${esc(p.cat_name ? stripEmoji(p.cat_name) : "")}</h2>
       ${isAdmin() ? `<button class="iconbtn" data-act="edit-prod" aria-label="edit">${svg("pencil")}</button>` : ""}
       <button class="iconbtn ${p.fav ? "on" : ""}" data-act="fav" aria-label="fav">${svg("heart")}</button></div>
-    ${isAdmin() && p.active === false ? `<div class="pill no" style="margin-bottom:10px">${svg("eyeoff", "sm")} ${L("Скрыт от покупателей", "Hidden from customers")}</div>` : ""}
+    ${isAdmin() && p.active === false ? `<div class="pill no" style="margin-bottom:10px">${svg("eyeoff", "sm")} ${T("app_hidden")}</div>` : ""}
     <div class="pmedia${out ? " out" : ""}">${media}</div>
     <div class="card pbody">
       <h1>${p.emoji_id ? pe(p.emoji_id, "") + " " : ""}${esc(p.emoji_id ? stripEmoji(p.name) : p.name)}</h1>
-      <div class="prow"><div class="big-price${out ? " out" : ""}">${money(p.price)}${p.by_qty ? `<small style="font-size:.55em;color:var(--muted)"> / ${L("шт.", "pc.")}</small>` : ""}${p.old_price ? `<s>${money(p.old_price)}</s>` : ""}</div>${stockPill}</div>
+      <div class="prow"><div class="big-price${out ? " out" : ""}">${money(p.price)}${p.by_qty ? `<small style="font-size:.55em;color:var(--muted)"> / ${T("app_per_pc")}</small>` : ""}${p.old_price ? `<s>${money(p.old_price)}</s>` : ""}</div>${stockPill}</div>
       ${p.promo_pct ? `<div class="pill" style="margin-top:10px">${svg("ticket", "sm")} −${p.promo_pct}% → <b>${money(p.promo_price)}</b></div>` : ""}
       ${qty}
       ${p.description ? `<div class="desc rich">${p.description}</div>` : ""}
@@ -773,22 +884,30 @@ function unitPrice() { const p = S.product; return p.promo_price || p.price; }
 function setQty(n, typing) {
   const p = S.product; const min = Math.max(1, p.min_qty || 1); const max = Math.max(min, p.max_qty || 1);
   S.qty = Math.min(Math.max(min, n | 0), max);
-  // пока покупатель печатает число меньше минимума, поле не трогаем — поправим, когда закончит ввод
   const inp = $("#qty"); if (inp && !(typing && (n | 0) < min)) inp.value = S.qty;
   const tot = Math.round(unitPrice() * S.qty * 100) / 100;
   if ($("#total")) $("#total").textContent = money(tot);
   if ($("#buyTotal")) $("#buyTotal").textContent = money(tot);
 }
 function stars(rub) { return Math.max(1, Math.ceil(Math.round(rub / (S.shop.star_rate || 2) * 1e6) / 1e6)); }
+const CRYPTO_ICON = {
+  cryptobot: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#2aa1e3"/><path d="M7.5 12.2 10.6 15l6-6.4" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  xrocket: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#7b5cff"/><path d="M13.5 6.5c2.3.3 3.7 1.7 4 4l-5 5-4-4zM9 13l-2.5.5L8.5 11M11 15l-.5 2.5L13 15.5" stroke="#fff" stroke-width="1.6" fill="none" stroke-linejoin="round"/></svg>',
+};
+function cryptoPayButtons(attr, total) {
+  return ["cryptobot", "xrocket"].filter((m) => S.shop.pay[m]).map((m) => `<button class="pay" ${attr}="${m}"><span class="pi2">${CRYPTO_ICON[m]}</span><span><b>${T("app_pay_" + m)}</b><span>${T("app_crypto_hint")}</span></span>${total ? `<span class="rt2">${money(total)}</span>` : ""}</button>`).join("");
+}
 function openPay() {
   const p = S.product, total = Math.round(unitPrice() * S.qty * 100) / 100;
   const pay = S.shop.pay, bal = S.user.balance;
   const enough = bal >= total;
-  sheet(`<h3>${esc(stripEmoji(p.name))}${S.qty > 1 ? " × " + S.qty : ""}</h3><p>${L("К оплате", "To pay")}: <b style="color:var(--text)">${money(total)}</b></p>
-    ${pay.balance ? `<button class="pay" data-pay="balance"><span class="pi2">${svg("wallet")}</span><span><b>${T("app_pay_balance")}</b><span>${L("На балансе", "Balance")}: ${money(bal)}</span></span><span class="rt2">${enough ? money(total) : `<span class="btn sm" data-act="topup">${L("Пополнить", "Top up")}</span>`}</span></button>` : ""}
-    ${pay.stars && p.stars !== false ? `<button class="pay" data-pay="stars"><span class="pi2">${svg("star")}</span><span><b>${T("app_pay_stars")}</b><span>Telegram Stars</span></span><span class="rt2">${stars(total)} ${svg("star", "sm")}</span></button>` : ""}
-    ${pay.sbp ? `<button class="pay" data-pay="sbp"><span class="pi2">${svg("bank")}</span><span><b>${T("app_pay_sbp")}</b><span>${L("Реквизиты придут в чат", "Details will come to the chat")}</span></span><span class="rt2">${money(total)}</span></button>` : ""}
-    ${S.shop.docs.length ? `<p style="margin-top:12px;font-size:12.5px">${L("Оплачивая, вы принимаете", "By paying you accept")} ${S.shop.docs.map((d) => d.url ? `<a href="#" data-link="${esc(d.url)}">${esc(d.name)}</a>` : esc(d.name)).join(", ")}</p>` : ""}`);
+  sheet(`<h3>${esc(stripEmoji(p.name))}${S.qty > 1 ? " × " + S.qty : ""}</h3><p>${T("app_to_pay")}: <b style="color:var(--text)">${money(total)}</b></p>
+    ${pay.balance ? `<button class="pay" data-pay="balance"><span class="pi2">${svg("wallet")}</span><span><b>${T("app_pay_balance")}</b><span>${T("app_on_balance", { sum: money(bal) })}</span></span><span class="rt2">${enough ? money(total) : `<span class="btn sm" data-act="topup">${T("app_topup_short")}</span>`}</span></button>` : ""}
+    ${pay.stars && p.stars !== false ? `<button class="pay" data-pay="stars"><span class="pi2">${svg("star")}</span><span><b>${T("app_pay_stars")}</b><span>${T("app_stars_hint")}</span></span><span class="rt2">${stars(total)} ${svg("star", "sm")}</span></button>` : ""}
+    ${cryptoPayButtons("data-pay", total)}
+    ${pay.sbp ? `<button class="pay" data-pay="sbp"><span class="pi2">${svg("bank")}</span><span><b>${T("app_pay_sbp")}</b><span>${T("app_sbp_hint")}</span></span><span class="rt2">${money(total)}</span></button>` : ""}
+    ${S.shop.docs.length ? `<p style="margin-top:12px;font-size:12.5px">${T("app_docs_accept")} ${S.shop.docs.map((d) => d.url ? `<a href="#" data-link="${esc(d.url)}">${esc(d.name)}</a>` : esc(d.name)).join(", ")}</p>` : ""}`);
+  hydrateEmoji($("#sheet"));
 }
 async function doBuy(method) {
   const p = S.product;
@@ -798,13 +917,14 @@ async function doBuy(method) {
     const r = await api("buy", { pid: p.id, qty: S.qty, method });
     if (r.invoice) {
       closeSheet();
-      return openInvoice(r.invoice, () => { toast(L("Оплачено! Товар — в чате с ботом", "Paid! The product is in the bot chat")); refreshMe(); });
+      return openInvoice(r.invoice, () => { toast(plain(T("app_paid_ok"))); refreshMe(); });
     }
-    if (r.sbp) { sheet(`<h3>${svg("bank")} ${T("app_pay_sbp")}</h3><p>${esc(r.message)}</p><button class="btn block" data-act="close-app">${L("Перейти в чат", "Go to chat")}</button>`); return; }
+    if (r.crypto) return cryptoSheet(r.crypto, "order");
+    if (r.sbp) { sheet(`<h3>${svg("bank")} ${T("app_pay_sbp")}</h3><p>${esc(r.message)}</p><button class="btn block" data-act="close-app">${T("app_go_chat")}</button>`); return; }
     haptic("ok");
-    sheet(`<div class="empty" style="padding:4px 0 0;color:#34c77b"><div class="ei">${ic("success")}</div></div><h3 style="text-align:center">${L("Заказ", "Order")} #${r.oid}</h3>
+    sheet(`<div class="empty" style="padding:4px 0 0;color:#34c77b"><div class="ei">${ic("success")}</div></div><h3 style="text-align:center;justify-content:center">${T("app_order_n", { n: r.oid })}</h3>
       <p style="text-align:center">${r.content ? T("app_done") : esc(r.status)}</p>
-      ${r.content ? `<div class="order"><div class="content">${esc(r.content)}</div><button class="btn block ghost" style="margin-top:10px" data-copy="${esc(r.content)}">${svg("copy", "sm")} ${L("Скопировать", "Copy")}</button></div>` : ""}
+      ${r.content ? `<div class="order"><div class="content">${esc(r.content)}</div><button class="btn block ghost" style="margin-top:10px" data-copy="${esc(r.content)}">${svg("copy", "sm")} ${T("app_copy")}</button></div>` : ""}
       <button class="btn block" style="margin-top:10px" data-act="close-sheet">OK</button>`);
     hydrateEmoji($("#sheet"));
     refreshMe();
@@ -819,28 +939,60 @@ function openInvoice(link, onPaid) {
   else window.open(link, "_blank");
 }
 
+/* ---------- криптооплата: счёт в CryptoBot / xRocket ---------- */
+let cryptoPoll = null;
+function cryptoSheet(c, kind) {
+  clearInterval(cryptoPoll);
+  S.crypto = { ...c, kind, started: Date.now() };
+  sheet(`<h3>${CRYPTO_ICON[c.service === "xRocket" ? "xrocket" : "cryptobot"]} ${T("app_crypto_wait")}</h3>
+    <p>${T("app_crypto_text", { service: c.service })}${c.extra ? `<br><b style="color:var(--text)">${esc(c.extra.trim())}</b>` : ""}</p>
+    <button class="btn block" data-link="${esc(c.url)}">${T("app_crypto_open", { service: c.service })}</button>
+    <button class="btn block ghost" style="margin-top:10px" data-act="crypto-check">${T("app_crypto_check")}</button>`);
+  hydrateEmoji($("#sheet"));
+  openLink(c.url);
+  cryptoPoll = setInterval(() => {
+    if (!$("#sheet").classList.contains("on") || Date.now() - S.crypto.started > 15 * 60 * 1000) return clearInterval(cryptoPoll);
+    checkCrypto(true);
+  }, 5000);
+}
+async function checkCrypto(silent) {
+  if (!S.crypto) return;
+  try {
+    const r = await api("crypto_check", { id: S.crypto.id });
+    if (r.user) S.user = r.user;
+    if (r.status === "paid") {
+      clearInterval(cryptoPoll); haptic("ok"); closeSheet();
+      toast(plain(T(S.crypto.kind === "order" ? "app_paid_ok" : "app_topup_ok")));
+      S.crypto = null; refreshMe();
+    } else if (r.status === "expired") { clearInterval(cryptoPoll); if (!silent) toast(plain(T("app_crypto_expired"))); }
+    else if (!silent) { haptic("err"); toast(plain(T("app_crypto_not_yet"))); }
+  } catch (e) { if (!silent) toast(e.message || "Ошибка"); }
+}
+
 /* ---------- пополнение ---------- */
 let topupAmount = null;
 function openTopup(need) {
   const t = S.shop.topup;
   const pre = need ? Math.max(Math.ceil(need), t.min) : null;
   topupAmount = pre;
-  sheet(`<h3>${ic("topup", "💳")} ${T("app_topup")}</h3><p>${L("Минимум", "Minimum")}: ${money(t.min)}${need ? " · " + L("не хватает", "missing") + " " + money(need) : ""}</p>
+  sheet(`<h3>${ic("topup")} ${T("app_topup")}</h3><p>${T("app_min_sum", { sum: money(t.min) })}${need ? " · " + T("app_missing", { sum: money(need) }) : ""}</p>
     <div class="amounts">${t.amounts.map((a) => `<button data-amt="${a}">${money(a)}</button>`).join("")}</div>
-    <div class="field"><input id="amt" inputmode="decimal" placeholder="${L("Своя сумма, ₽", "Custom amount, ₽")}" value="${pre || ""}"></div>
-    <button class="pay" data-top="stars"><span class="pi2">${svg("star")}</span><span><b>${T("app_pay_stars")}</b><span>Telegram Stars</span></span><span class="rt2" id="starsAmt"></span></button>
-    ${S.shop.pay.sbp ? `<button class="pay" data-top="sbp"><span class="pi2">${svg("bank")}</span><span><b>${T("app_pay_sbp")}</b><span>${L("Чек проверит администратор", "The admin will check the receipt")}</span></span></button>` : ""}`);
+    <div class="field"><input id="amt" inputmode="decimal" placeholder="${esc(plain(T("app_custom_amount")))}" value="${pre || ""}" aria-label="amount"></div>
+    <button class="pay" data-top="stars"><span class="pi2">${svg("star")}</span><span><b>${T("app_pay_stars")}</b><span>${T("app_stars_hint")}</span></span><span class="rt2" id="starsAmt"></span></button>
+    ${cryptoPayButtons("data-top")}
+    ${S.shop.pay.sbp ? `<button class="pay" data-top="sbp"><span class="pi2">${svg("bank")}</span><span><b>${T("app_pay_sbp")}</b><span>${T("app_sbp_topup_hint")}</span></span></button>` : ""}`);
   hydrateEmoji($("#sheet"));
   const upd = () => { const v = parseFloat(($("#amt").value || "").replace(",", ".")); topupAmount = v > 0 ? v : null; $("#starsAmt").textContent = topupAmount ? stars(topupAmount) + " ⭐" : ""; document.querySelectorAll("[data-amt]").forEach((b) => b.classList.toggle("on", +b.dataset.amt === topupAmount)); };
   $("#amt").addEventListener("input", upd); upd();
 }
 async function doTopup(method) {
-  if (!topupAmount || topupAmount < S.shop.topup.min) { haptic("err"); return toast(L("Минимум ", "Minimum ") + money(S.shop.topup.min)); }
+  if (!topupAmount || topupAmount < S.shop.topup.min) { haptic("err"); return toast(plain(T("app_min_sum", { sum: money(S.shop.topup.min) }))); }
   setBusy(true);
   try {
     const r = await api("topup", { amount: topupAmount, method });
-    if (r.invoice) { closeSheet(); return openInvoice(r.invoice, () => { toast(L("Баланс пополнен", "Balance topped up")); setTimeout(refreshMe, 1200); }); }
-    sheet(`<h3>${svg("bank")} ${T("app_pay_sbp")}</h3><p>${esc(r.message)}</p><button class="btn block" data-act="close-app">${L("Перейти в чат", "Go to chat")}</button>`);
+    if (r.invoice) { closeSheet(); return openInvoice(r.invoice, () => { toast(plain(T("app_topup_ok"))); setTimeout(refreshMe, 1200); }); }
+    if (r.crypto) return cryptoSheet(r.crypto, "topup");
+    sheet(`<h3>${svg("bank")} ${T("app_pay_sbp")}</h3><p>${esc(r.message)}</p><button class="btn block" data-act="close-app">${T("app_go_chat")}</button>`);
   } catch (e) { toast(e.message || "Ошибка"); } finally { setBusy(false); }
 }
 
@@ -848,56 +1000,84 @@ async function doTopup(method) {
 async function renderOrders() {
   const el = $("#s-orders");
   el.innerHTML = `<div class="topbar"><h2>${T("app_orders")}</h2></div><div class="list">${'<div class="skeleton" style="height:76px"></div>'.repeat(3)}</div>`;
+  hydrateEmoji(el);
   try {
     const r = await api("orders");
     el.querySelector(".list").outerHTML = r.items.length ? `<div class="list">${r.items.map((o) => `<div class="card order">
       <div class="oh"><div><b>#${o.id} · ${esc(o.name)}</b><div class="meta">${esc(o.date)} · ${money(o.price)}</div></div><span class="st-chip ${o.status}">${esc(o.status_text)}</span></div>
-      ${o.content ? `<div class="content">${esc(o.content)}</div><div class="row2"><button class="btn sm ghost" data-copy="${esc(o.content)}">${svg("copy", "sm")} ${L("Скопировать", "Copy")}</button></div>` : ""}</div>`).join("")}</div>` : emptyHtml();
+      ${o.content ? `<div class="content">${esc(o.content)}</div><div class="row2"><button class="btn sm ghost" data-copy="${esc(o.content)}">${svg("copy", "sm")} ${T("app_copy")}</button></div>` : ""}</div>`).join("")}</div>` : emptyHtml();
     hydrateEmoji(el);
   } catch (e) { toast(e.message || "Ошибка"); }
 }
 
 /* ---------- профиль ---------- */
+function stIcon(s) { return s.emoji_id ? pe(s.emoji_id, s.emoji) : esc(s.emoji || "🏅"); }
+const fmtPct = (v) => (Math.round((+v || 0) * 10) / 10).toString().replace(".", ",");
 function renderProfile() {
   const u = S.user, sh = S.shop, st = u.status || {};
   const ava = u.photo_url ? `<img src="${esc(u.photo_url)}" alt="">` : esc((u.first_name || "?").slice(0, 1).toUpperCase());
-  const theme = lsGet("theme") || sh.theme;
-  const stIcon = st.emoji_id ? pe(st.emoji_id, st.emoji) : esc(st.emoji || "🏅");
-  const next = u.next ? `${L("До", "To")} «${esc(u.next.name)}»: ${money(u.left)}` : L("Максимальный статус", "Top status");
-  $("#s-profile").innerHTML = `<div class="topbar"><h2>${T("app_profile")}</h2></div>
-    <div class="card prof"><div class="ava">${ava}</div><div style="min-width:0">
-      <h2>${esc(u.first_name || "")}</h2><div class="sub">${u.username ? "@" + esc(u.username) : ""}</div>
-      <button class="idbtn" data-copy="${u.id}">ID ${u.id} ${svg("copy", "sm")}</button></div></div>
-    <div class="stats3"><div class="card stat"><b>${money(u.balance)}</b><span>${T("app_balance")}</span></div>
-      <div class="card stat"><b>${u.orders}</b><span>${T("app_orders")}</span></div>
-      <div class="card stat"><b>${money(u.deposited)}</b><span>${L("Внесено", "Deposited")}</span></div></div>
-    <div class="row2"><button class="btn" data-act="topup">${ic("topup", "💳")} ${T("app_topup")}</button></div>
-    ${bonusHtml()}
-    <div class="card statuscard"><div class="st-head"><div class="st-ico">${stIcon}</div><div><span>${T("app_status")}</span><b>${esc(st.name || "")}</b></div></div>
-      <div class="bar"><i style="width:${u.pct}%"></i></div><div class="muted" style="font-size:13px;margin-top:6px">${next}</div>
-      <div class="st-list">${sh.statuses.map((s) => `<div class="st-row ${s.name === st.name ? "cur" : ""}"><span class="em">${s.emoji_id ? pe(s.emoji_id, s.emoji) : esc(s.emoji || "•")}</span>${esc(s.name)}<span class="mn">${L("от", "from")} ${money(s.min)}</span></div>`).join("")}</div>
-      <div class="muted" style="font-size:12.5px;margin-top:8px">${T("app_statuses_hint")}</div></div>
-    <div class="section-title">${L("Ещё", "More")}</div>
+  const [whole, frac] = String(Math.round(u.balance * 100) / 100).split(".");
+  const curIdx = sh.statuses.findIndex((s) => s.name === st.name);
+  const next = u.next ? T("app_status_next", { name: u.next.name, left: money(u.left) }) + (u.next_disc ? T("app_status_next_disc", { pct: fmtPct(u.next_disc) }) : "") : T("app_status_top");
+  const mode = lsGet("theme") || sh.theme;
+  const pal = lsGet("palette") || "shop";
+  const shopAccent = sh.accent || "#ff7a1a";
+  $("#s-profile").innerHTML = `
+    <div class="card ucard">
+      <div class="uh"><div class="ava">${ava}</div><div style="min-width:0"><h2>${esc(u.first_name || "")}</h2><div class="sub">${u.username ? "@" + esc(u.username) : ""}</div></div></div>
+      <div><div class="lbl2">${T("app_balance")}</div><div class="bal">${Number(whole).toLocaleString("ru-RU")}${frac ? "," + frac : ""}<small>₽</small></div></div>
+    </div>
+    <div class="tiles2">
+      <button class="tile" data-act="topup"><span class="ti">${ic("topup")}</span>${T("app_topup_short")}</button>
+      <button class="tile" data-act="bonus" ${sh.bonus.on ? "" : "disabled"}><span class="ti">${ic("bonus")}</span>${T("app_bonus_short")}</button>
+    </div>
+    <div class="tiles2">
+      <div class="card stile"><span>${T("app_purchases")}</span><b>${u.orders_30d}</b><small>${u.orders_30d ? T("app_purchases_sub") : T("app_purchases_none")}</small></div>
+      <div class="card stile"><span>${T("app_spent")}</span><b>${money(u.spent)}</b><small>${u.spent ? T("app_spent_sub") : T("app_spent_none")}</small></div>
+      <div class="card stile"><span>${T("app_with_us")}</span><b>${T("app_days", { n: u.days })}</b><small>${T("app_since", { date: u.joined })}</small></div>
+      <button class="card stile" data-copy="${u.id}"><span>ID ${svg("copy", "sm")}</span><b>${u.id}</b><small>${T("app_id_hint")}</small></button>
+    </div>
+    <div class="list" style="margin-top:10px">
+      <button class="card row" data-tab="orders"><span class="ri">${ic("tab_orders")}</span><span class="rt"><b>${u.orders ? T("app_last_order") : T("app_no_orders")}</b><span>${u.orders ? T("app_last_order_sub", { n: u.orders }) : T("app_no_orders_sub")}</span></span><span class="chev">${svg("right")}</span></button>
+      <button class="card row" data-act="ref"><span class="ri">${ic("refs")}</span><span class="rt"><b>${T("app_ref_title", { pct: u.ref.pct })}</b><span>${T("app_ref_sub", { n: u.ref.invited, sum: money(u.ref.earned) })}</span></span><span class="chev">${svg("right")}</span></button>
+    </div>
+
+    <div class="sec">${T("app_status")}</div>
+    <div class="card stcard">
+      <div class="st-head"><div class="st-ico">${stIcon(st)}</div><div><b>${esc(st.name || "")}</b><span>${u.disc ? T("app_status_disc", { pct: fmtPct(u.disc) }) : T("app_status_nodisc")}</span></div></div>
+      <div class="bar"><i style="width:${u.pct}%"></i></div><div class="muted" style="font-size:13px;margin-top:8px">${next}</div>
+      <div class="st-tiles">${sh.statuses.map((s, i) => `<div class="st-tile ${i === curIdx ? "cur" : i < curIdx ? "done" : ""}"><span class="em">${stIcon(s)}</span><b>${esc(s.name)}</b><small>${+s.disc ? "−" + fmtPct(s.disc) + "%" : "0%"}</small></div>`).join("")}</div>
+      <div class="muted" style="font-size:12.5px;margin-top:10px">${T("app_statuses_hint")}</div>
+    </div>
+
+    <div class="sec">${T("app_colors")}</div>
+    <div class="card" style="padding:16px">
+      <div class="palettes">${PALETTES.map((p) => `<button class="pal ${p.id === "shop" ? "shop" : ""} ${pal === p.id ? "on" : ""}" data-pal="${p.id}" style="--a:${p.a || shopAccent};--b:${p.b || "#000"}" aria-label="${esc(p.name)}"><i></i><span>${esc(p.name)}</span></button>`).join("")}</div>
+      <div class="lbl" style="margin-top:16px">${T("app_mode")}</div>
+      <div class="seg">${[["dark", "app_mode_dark"], ["light", "app_mode_light"], ["auto", "app_mode_auto"]].map(([k, n]) => `<button data-theme-set="${k}" class="${mode === k ? "on" : ""}">${T(n)}</button>`).join("")}</div>
+    </div>
+
+    <div class="sec">${T("app_settings")}</div>
     <div class="list">
-      <button class="card row" data-act="ref"><span class="ri">${ic("refs", "👥")}</span><span class="rt"><b>${T("app_refs")}</b><span>${T("app_refs_hint", { pct: u.ref.pct })} · ${L("приглашено", "invited")} ${u.ref.invited}</span></span><span class="chev">${svg("right")}</span></button>
-      <div class="card row" style="flex-direction:column;align-items:stretch"><div style="display:flex;gap:12px;align-items:center"><span class="ri">${ic("promo", "🎟")}</span><span class="rt"><b>${T("app_promo")}</b><span>${u.promo ? `${esc(u.promo.code)} · −${u.promo.pct}%` : L("Скидка на следующую покупку", "Discount on your next purchase")}</span></span></div>
-        <div class="field"><input id="promo" placeholder="${L("Введите код", "Enter code")}" autocapitalize="characters"><button class="btn sm" data-act="promo" style="height:46px">OK</button></div></div>
-      <div class="card row" style="flex-direction:column;align-items:stretch;gap:10px"><div style="display:flex;gap:12px;align-items:center"><span class="ri">${ic("theme", "🌓")}</span><span class="rt"><b>${T("app_theme")}</b></span></div>
-        <div class="seg">${[["dark", L("Тёмная", "Dark")], ["light", L("Светлая", "Light")], ["auto", L("Авто", "Auto")]].map(([k, n]) => `<button data-theme-set="${k}" class="${theme === k ? "on" : ""}">${n}</button>`).join("")}</div>
+      <div class="card row" style="flex-direction:column;align-items:stretch"><div style="display:flex;gap:12px;align-items:center"><span class="ri">${ic("promo")}</span><span class="rt"><b>${T("app_promo")}</b><span>${u.promo ? `${esc(u.promo.code)} · −${u.promo.pct}%` : T("app_promo_hint")}</span></span></div>
+        <div class="field"><input id="promo" placeholder="${esc(plain(T("app_promo_ph")))}" autocapitalize="characters" aria-label="promo"><button class="btn sm" data-act="promo" style="height:46px">OK</button></div></div>
+      <div class="card row" style="flex-direction:column;align-items:stretch;gap:10px">
         <div class="seg">${[["ru", "Русский"], ["en", "English"]].map(([k, n]) => `<button data-lang-set="${k}" class="${u.lang === k ? "on" : ""}">${n}</button>`).join("")}</div></div>
-      <button class="card row" data-act="support"><span class="ri">${ic("support", "💬")}</span><span class="rt"><b>${T("app_support")}</b><span>${L("Ответим прямо в чате с ботом", "We'll reply in the bot chat")}</span></span><span class="chev">${svg("right")}</span></button>
+      <button class="card row" data-act="support"><span class="ri">${ic("support")}</span><span class="rt"><b>${T("app_support")}</b><span>${T("app_support_hint")}</span></span><span class="chev">${svg("right")}</span></button>
       ${sh.docs.map((d) => `<button class="card row" data-link="${esc(d.url || "")}"><span class="ri">${svg("file")}</span><span class="rt"><b>${esc(d.name)}</b></span><span class="chev">${svg("right")}</span></button>`).join("")}
     </div>
+
+    ${sh.bonus.on ? `<div class="sec">${T("app_bonus_title")}</div>${bonusHtml()}` : ""}
     <p class="muted" style="text-align:center;font-size:12px;margin-top:18px">${T("app_member_since", { date: u.joined })}</p>`;
   hydrateEmoji($("#s-profile"));
 }
 function openRef() {
   const r = S.user.ref;
-  sheet(`<h3>${ic("refs", "👥")} ${T("app_refs")}</h3><p>${T("app_refs_hint", { pct: r.pct })}</p>
-    <div class="stats3" style="margin-top:0"><div class="card stat"><b>${r.invited}</b><span>${L("Пригласили", "Invited")}</span></div>
-    <div class="card stat"><b>${money(r.earned)}</b><span>${L("Заработано", "Earned")}</span></div><div class="card stat"><b>${money(r.available)}</b><span>${L("К выводу", "Available")}</span></div></div>
+  sheet(`<h3>${ic("refs")} ${T("app_refs")}</h3><p>${T("app_refs_hint", { pct: r.pct })}</p>
+    <div class="stats3" style="margin-top:0"><div class="card stat"><b>${r.invited}</b><span>${T("app_ref_invited")}</span></div>
+    <div class="card stat"><b>${money(r.earned)}</b><span>${T("app_ref_earned")}</span></div><div class="card stat"><b>${money(r.available)}</b><span>${T("app_ref_available")}</span></div></div>
     <div class="order" style="padding:0;margin-top:12px"><div class="content">${esc(r.link)}</div></div>
-    <div class="row2"><button class="btn ghost" data-copy="${esc(r.link)}">${svg("copy", "sm")} ${L("Копировать", "Copy")}</button><button class="btn" data-act="share">${svg("share", "sm")} ${L("Поделиться", "Share")}</button></div>`);
+    <div class="row2"><button class="btn ghost" data-copy="${esc(r.link)}">${svg("copy", "sm")} ${T("app_copy")}</button><button class="btn" data-act="share">${svg("share", "sm")} ${T("app_share")}</button></div>`);
   hydrateEmoji($("#sheet"));
 }
 
@@ -911,7 +1091,7 @@ async function copy(text) {
   try { await navigator.clipboard.writeText(text); } catch (e) {
     const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); } catch (e2) {} ta.remove();
   }
-  haptic("ok"); toast(L("Скопировано", "Copied"));
+  haptic("ok"); toast(plain(T("app_copied")));
 }
 function openLink(url) {
   if (!url) return;
@@ -926,11 +1106,11 @@ async function refreshMe() {
 
 /* ---------- клики ---------- */
 document.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-tab],[data-list],[data-prod],[data-act],[data-pay],[data-top],[data-amt],[data-copy],[data-link],[data-q],[data-theme-set],[data-lang-set]");
-  if (!t) return;
+  const t = e.target.closest("[data-tab],[data-kind],[data-prod],[data-act],[data-pay],[data-top],[data-amt],[data-copy],[data-link],[data-q],[data-theme-set],[data-lang-set],[data-pal]");
+  if (!t || t.disabled) return;
   const d = t.dataset;
   if (d.tab) return go(d.tab);
-  if (d.list) { haptic(); return push("list", d.list); }
+  if (d.kind) return setKind(d.kind);
   if (d.prod) { haptic(); return push("product", +d.prod); }
   if (d.copy !== undefined) return copy(d.copy);
   if (d.link !== undefined) { e.preventDefault(); return openLink(d.link); }
@@ -939,20 +1119,24 @@ document.addEventListener("click", async (e) => {
   if (d.top) return doTopup(d.top);
   if (d.amt) { $("#amt").value = d.amt; $("#amt").dispatchEvent(new Event("input")); return haptic(); }
   if (d.themeSet) { lsSet("theme", d.themeSet); applyTheme(); renderProfile(); return haptic(); }
+  if (d.pal) { lsSet("palette", d.pal); applyTheme(); renderProfile(); return haptic(); }
   if (d.langSet) { try { await api("lang", { lang: d.langSet }); } catch (x) {} return boot(); }
   switch (d.act) {
     case "back": return back();
     case "topup": e.stopPropagation(); closeSheet(); return openTopup();
     case "profile": return go("profile");
-    case "search": go("catalog"); return setTimeout(() => $("#q") && $("#q").focus(), 60);
+    case "search": go("home"); return setTimeout(() => $("#q") && $("#q").focus(), 60);
     case "buy": haptic("medium"); return openPay();
-    case "notify": try { const r = await api("notify", { pid: S.product.id }); toast(r.message.replace(/<[^>]+>/g, "")); } catch (x) {} return;
+    case "notify": try { const r = await api("notify", { pid: S.product.id }); toast(plain(r.message)); } catch (x) {} return;
     case "fav": try { const r = await api("fav", { pid: S.product.id }); S.product.fav = r.fav; t.classList.toggle("on", r.fav); haptic(); } catch (x) {} return;
-    case "bonus": try { const r = await api("bonus", {}); S.user = r.user; haptic("ok"); toast(r.message); S.stack.length || render(S.tab); } catch (x) { toast(x.message || "…"); } return;
+    case "bonus":
+      if (S.user.bonus_left > 0) { haptic("err"); return toast(plain(T("app_bonus_wait", { left: fmtLeft(S.user.bonus_left) }))); }
+      try { const r = await api("bonus", {}); S.user = r.user; haptic("ok"); toast(r.message); S.stack.length || render(S.tab); } catch (x) { toast(x.message || "…"); } return;
     case "promo": { const code = ($("#promo").value || "").trim(); if (!code) return; try { const r = await api("promo", { code }); S.user = r.user; toast(r.message); renderProfile(); } catch (x) { haptic("err"); toast(x.message || "…"); } return; }
     case "ref": return openRef();
     case "share": return openLink(`https://t.me/share/url?url=${encodeURIComponent(S.user.ref.link)}`);
     case "support": return openLink(`https://t.me/${S.shop.bot}?start=support`);
+    case "crypto-check": return checkCrypto(false);
     case "close-sheet": return closeSheet();
     case "close-app": closeSheet(); try { tg && tg.close(); } catch (x) {} return;
   }
@@ -967,9 +1151,9 @@ function gate(err) {
   let body = `<div class="gi">${svg("lock", "lg")}</div><h2>${esc(err.message || "Ошибка")}</h2>`;
   if (err.error === "sub") body = `<div class="gi">${svg("megaphone", "lg")}</div><p>${esc(err.message)}</p><div class="list" style="margin-top:14px">${err.channels.map((c) => `<button class="card row" data-link="${esc(c.url)}"><span class="ri">${svg("megaphone")}</span><span class="rt"><b>${esc(c.title)}</b></span><span class="chev">${svg("right")}</span></button>`).join("")}</div><button class="btn block" style="margin-top:14px" id="retry">${L("Я подписался", "I subscribed")}</button>`;
   else if (err.error === "agree") body = `<div class="gi">${svg("file", "lg")}</div><p>${esc(err.message)}</p><div class="list" style="margin-top:14px">${(err.docs || []).map((d) => `<button class="card row" data-link="${esc(d.url || "")}"><span class="ri">${svg("file")}</span><span class="rt"><b>${esc(d.name)}</b></span><span class="chev">${svg("right")}</span></button>`).join("")}</div><button class="btn block" style="margin-top:14px" id="agree">${L("Принимаю", "I agree")}</button>`;
-  else if (err.error === "maint") body = `<div class="gi">${svg("wrench", "lg")}</div><p>${esc(err.message)}</p><button class="btn block ghost" style="margin-top:14px" id="retry">${svg("refresh", "sm")} ${L("Обновить", "Refresh")}</button>`;
+  else if (err.error === "maint") body = `<div class="gi">${svg("wrench", "lg")}</div><p>${esc(err.message)}</p><button class="btn block ghost" style="margin-top:14px" id="retry">${L("Обновить", "Refresh")}</button>`;
   else if (err.error === "auth") body = `<div class="gi">${svg("send", "lg")}</div><h2>${L("Откройте магазин из Telegram", "Open the shop from Telegram")}</h2><p class="muted">${L("Мини-приложение работает внутри Telegram.", "The mini app works inside Telegram.")}</p>`;
-  else body += `<button class="btn block ghost" style="margin-top:14px" id="retry">${svg("refresh", "sm")} ${L("Повторить", "Retry")}</button>`;
+  else body += `<button class="btn block ghost" style="margin-top:14px" id="retry">${L("Повторить", "Retry")}</button>`;
   $("#s-gate").innerHTML = `<div class="card gate">${body}</div>`;
   document.querySelectorAll(".screen").forEach((s) => s.classList.toggle("on", s.id === "s-gate"));
   const r = $("#retry"); if (r) r.onclick = boot;
@@ -981,11 +1165,12 @@ async function boot() {
   try {
     const r = await api("boot");
     S.shop = r.shop; S.user = r.user; S.cats = r.cats;
-    document.title = S.shop.title;
+    S.homeKind = S.homeKind || "all";
+    document.title = S.shop.title_plain || plain(S.shop.title);
     applyTheme();
     renderNav();
     const start = location.hash.replace("#", "").replace("demo", "");
-    if (["home", "catalog", "orders", "profile"].includes(start)) S.tab = start;
+    if (["home", "orders", "profile"].includes(start)) S.tab = start;
     S.stack = [];
     render(S.tab);
   } catch (e) {
@@ -999,7 +1184,7 @@ if (tg) {
   try { tg.onEvent("themeChanged", applyTheme); } catch (e) {}
   try { tg.onEvent("invoiceClosed", (ev) => { if (ev && ev.status === "paid") setTimeout(refreshMe, 1200); }); } catch (e) {}
 }
-setInterval(() => { if (S.user && S.user.bonus_left > 0) { S.user.bonus_left = Math.max(0, S.user.bonus_left - 60); const b = $("#bonusSub"); if (b) b.textContent = S.user.bonus_left ? T("app_bonus_wait", { left: fmtLeft(S.user.bonus_left) }).replace(/<[^>]+>/g, "") : ""; } }, 60000);
+setInterval(() => { if (S.user && S.user.bonus_left > 0) { S.user.bonus_left = Math.max(0, S.user.bonus_left - 60); const b = $("#bonusSub"); if (b) b.textContent = S.user.bonus_left ? plain(T("app_bonus_wait", { left: fmtLeft(S.user.bonus_left) })) : ""; } }, 60000);
 
 /* ---------- админ-режим: редактирование прямо в мини-приложении ---------- */
 const isAdmin = () => !!(S.user && S.user.is_admin);
@@ -1092,7 +1277,7 @@ function openShopEditor() {
   ED.target = "shop"; ED.onDone = async () => { await reloadShop(); render("home"); };
   sheet(`<h3>${svg("pencil")} ${L("Витрина", "Storefront")}</h3><p>${L("Карточка на главной и обои приложения.", "Home card and app wallpaper.")}</p>
     <span class="lbl">${L("Название на карточке", "Card title")}</span>
-    <div class="ed-row"><input class="inp" id="edTitle" maxlength="40" value="${esc(sh.title)}"><button class="btn" style="flex:0 0 auto" data-act="save-title">OK</button></div>
+    <div class="ed-row"><input class="inp" id="edTitle" maxlength="40" value="${esc(sh.title_plain || plain(sh.title))}"><button class="btn" style="flex:0 0 auto" data-act="save-title">OK</button></div>
     <span class="lbl">${L("Фон карточки", "Card background")}</span>${mediaBlock("app_bg", 0, sh.bg).replace('id="edMedia"', 'id="edMedia-app_bg"')}
     <span class="lbl">${L("Логотип", "Logo")}</span>${mediaBlock("app_logo", 0, sh.logo, true).replace('id="edMedia"', 'id="edMedia-app_logo"')}
     <span class="lbl">${L("Обои приложения", "App wallpaper")}</span>${mediaBlock("app_wall", 0, sh.wall, true).replace('id="edMedia"', 'id="edMedia-app_wall"')}
@@ -1212,14 +1397,14 @@ function demoApi(path, body) {
     title: "heliys shop", name: "heliys shop", season: (location.search.match(/season=(\w+)/) || [])[1] || "halloween", badge: "Хэллоуин", accent: "#ff7a1a", theme: "dark", fx: true,
     bg: null, logo: null, wall: null, icons: {}, texts: {}, bonus: { on: true, amount: 3 }, topup: { min: 50, amounts: [100, 300, 500, 1000, 2000] },
     star_rate: 2, bot: "heliys_shop_bot", has_suppliers: true, suppliers_cid: 9, docs: [{ name: "Пользовательское соглашение", url: "" }],
-    pay: { balance: true, sbp: true, stars: true },
-    statuses: [{ name: "Генин", min: 0, emoji: "🍃" }, { name: "Чунин", min: 500, emoji: "🌀" }, { name: "Джонин", min: 2000, emoji: "⚡" }, { name: "АНБУ", min: 5000, emoji: "🦊" }, { name: "Саннин", min: 10000, emoji: "🐸" }],
+    pay: { balance: true, sbp: true, stars: true, cryptobot: true, xrocket: true },
+    statuses: [{ name: "Генин", min: 0, emoji: "🍃", disc: 0 }, { name: "Чунин", min: 500, emoji: "🌀", disc: 3 }, { name: "Джонин", min: 2000, emoji: "⚡", disc: 4 }, { name: "АНБУ", min: 5000, emoji: "🦊", disc: 5 }, { name: "Саннин", min: 10000, emoji: "🐸", disc: 7 }],
   };
   const tx = { app_balance: "Баланс", app_bonus_title: "Ежедневный бонус", app_bonus_ready: "Заберите +{amount} на баланс", app_bonus_wait: "Следующий через {left}", app_bonus_btn: "Забрать", app_categories: "Категории", app_catalog: "Каталог", app_home: "Главная", app_orders: "Заказы", app_profile: "Профиль", app_hits: "Хиты", app_disc: "Скидки", app_new: "Новинки", app_fav: "Избранное", app_search: "Поиск товаров", app_buy: "Купить", app_pay_balance: "С баланса", app_pay_stars: "Звёздами", app_pay_sbp: "По СБП", app_topup: "Пополнить баланс", app_in_stock: "В наличии", app_out: "Нет в наличии", app_notify: "Уведомить о поступлении", app_empty: "Здесь пока пусто", app_status: "Статус", app_statuses_hint: "Статус растёт от суммы пополнений и оплат", app_refs: "Пригласить друга", app_refs_hint: "{pct}% с каждой покупки друга", app_promo: "Промокод", app_support: "Написать в поддержку", app_theme: "Тема", app_done: "Готово! Товар отправлен в чат с ботом", app_member_since: "С нами с {date}" };
-  shop.texts = tx;
+  shop.texts = Object.assign({"app_balance": "Баланс", "app_bonus_title": "Ежедневный бонус", "app_bonus_ready": "Заберите +{amount} на баланс", "app_bonus_wait": "Следующий через {left}", "app_bonus_btn": "Забрать", "app_categories": "Категории", "app_catalog": "Каталог", "app_home": "Магазин", "app_orders": "Заказы", "app_profile": "Профиль", "app_fav": "Избранное", "app_search": "Найти товар", "app_all": "Все", "app_suppliers": "Поставщики", "app_pcs": "{n} шт", "app_search_res": "Поиск: {q}", "app_total": "Итого", "app_min_qty": "Минимум — {n} шт · {price} за 1 шт", "app_per_pc": "шт", "app_to_pay": "К оплате", "app_on_balance": "На балансе: {sum}", "app_topup_short": "Пополнить", "app_bonus_short": "Бонус", "app_sbp_hint": "Реквизиты придут в чат с ботом", "app_sbp_topup_hint": "Чек проверит администратор", "app_stars_hint": "Telegram Stars", "app_pay_cryptobot": "CryptoBot", "app_pay_xrocket": "xRocket", "app_crypto_hint": "Любая криптовалюта", "app_crypto_wait": "Ожидаем оплату", "app_crypto_text": "Оплатите счёт в {service} и вернитесь сюда — всё зачислится автоматически.", "app_crypto_open": "Открыть {service}", "app_crypto_check": "Я оплатил — проверить", "app_crypto_not_yet": "Оплата ещё не пришла — подождите минуту", "app_crypto_expired": "Счёт истёк. Создайте новый", "app_paid_ok": "Оплачено! Товар — в чате с ботом", "app_topup_ok": "Баланс пополнен", "app_docs_accept": "Оплачивая, вы принимаете:", "app_go_chat": "Перейти в чат", "app_min_sum": "Минимум {sum}", "app_missing": "не хватает {sum}", "app_custom_amount": "Своя сумма, ₽", "app_order_n": "Заказ #{n}", "app_copy": "Скопировать", "app_copied": "Скопировано", "app_purchases": "Покупок", "app_purchases_sub": "за 30 дней", "app_purchases_none": "за 30 дней — ни одной", "app_spent": "Потрачено", "app_spent_none": "пока без покупок", "app_spent_sub": "за всё время", "app_with_us": "С нами", "app_days": "{n} дн.", "app_since": "с {date}", "app_id_hint": "нужен для поддержки", "app_no_orders": "Покупок пока нет", "app_no_orders_sub": "Самое время заглянуть в магазин", "app_last_order": "Мои покупки", "app_last_order_sub": "Всего заказов: {n}", "app_ref_title": "Рефка · {pct}%", "app_ref_sub": "{n} друзей · доход {sum}", "app_ref_invited": "Пригласили", "app_ref_earned": "Заработано", "app_ref_available": "К выводу", "app_share": "Поделиться", "app_status_disc": "Скидка {pct}% на все покупки", "app_status_nodisc": "Скидки пока нет", "app_status_next": "До статуса «{name}» осталось {left}", "app_status_next_disc": " — скидка {pct}%", "app_status_top": "У вас максимальный статус", "app_colors": "Цвет оформления", "app_mode": "Режим", "app_mode_dark": "Тёмный", "app_mode_light": "Светлый", "app_mode_auto": "Авто", "app_promo_hint": "Скидка на следующую покупку", "app_promo_ph": "Введите код", "app_support_hint": "Ответим прямо в чате с ботом", "app_settings": "Настройки", "app_bonus_card": "Раз в сутки {amount} на баланс", "app_hidden": "Скрыт от покупателей", "app_buy": "Купить", "app_pay_balance": "С баланса", "app_pay_stars": "Звёздами", "app_pay_sbp": "По СБП", "app_topup": "Пополнить баланс", "app_in_stock": "В наличии", "app_out": "Нет в наличии", "app_notify": "Уведомить о поступлении", "app_empty": "Здесь пока пусто", "app_status": "Статус", "app_statuses_hint": "Статус растёт от суммы пополнений и оплат", "app_refs": "Пригласить друга", "app_refs_hint": "{pct}% с каждой покупки друга", "app_promo": "Промокод", "app_support": "Написать в поддержку", "app_theme": "Тема", "app_done": "Готово! Товар отправлен в чат с ботом", "app_member_since": "С нами с {date}"}, tx, { app_home: "Магазин", app_search: "Найти товар" });
   shop.badge = { halloween: "Хэллоуин", newyear: "Новый год", winter: "Зима", autumn: "Осень", spring: "Весна", summer: "Лето", valentine: "14 февраля", none: "" }[shop.season];
   shop.accent = { halloween: "#ff7a1a", newyear: "#3fb6ff", winter: "#8fd3ff", autumn: "#e8913a", spring: "#ff7eb6", summer: "#ffbf1f", valentine: "#ff4d6d", none: "#8b7bff" }[shop.season];
-  const user = { id: 1867178992, username: "apfov", first_name: "Heliys", photo_url: null, lang: "ru", balance: 3, deposited: 120, status: shop.statuses[0], next: shop.statuses[1], pct: 24, left: 380, bonus_left: 0, orders: 4, joined: "24.10.2026", promo: null, ref: { link: "https://t.me/heliys_shop_bot?start=ref_1867178992", invited: 3, earned: 45, available: 45, pct: 10 }, is_admin: true };
+  const user = { id: 1867178992, username: "apfov", first_name: "Heliys", photo_url: null, lang: "ru", balance: 3, deposited: 120, status: shop.statuses[0], next: shop.statuses[1], pct: 24, left: 380, disc: 0, next_disc: 3, orders_30d: 0, spent: 0, days: 197, bonus_left: 0, orders: 4, joined: "24.10.2026", promo: null, ref: { link: "https://t.me/heliys_shop_bot?start=ref_1867178992", invited: 3, earned: 45, available: 45, pct: 10 }, is_admin: true };
   const cats = [{ id: 1, name: "🤖 Ai-Сервисы", count: 6 }, { id: 2, name: "📱 Физ. номера", count: 12 }, { id: 3, name: "🎮 Игровые аккаунты", count: 4 }, { id: 4, name: "💎 Подписки", count: 8 }];
   const items = [{ id: 1, name: "ChatGPT Plus · 1 месяц", price: 990, old_price: 1290, stock: 7, cat: 1 }, { id: 2, name: "Claude Pro · 1 месяц", price: 1490, old_price: 0, stock: 3, cat: 1 }, { id: 3, name: "Номер 🇺🇸 США", price: 149, old_price: 0, stock: -1, cat: 2 }, { id: 4, name: "Midjourney Basic", price: 790, old_price: 0, stock: 0, out: true, cat: 1 }, { id: 5, name: "⭐ Telegram Stars", price: 1.4, old_price: 0, stock: -1, by_qty: true, min_qty: 50, stars: false, cat: 1 }];
   if (path === "boot") return Promise.resolve({ ok: true, shop, user, cats });

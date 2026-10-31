@@ -90,13 +90,15 @@ def icons():
 
 # ---------- статусы ----------
 # Статус зависит от того, сколько реальных денег покупатель принёс в бота (пополнения + оплаты СБП/звёздами).
+# disc — постоянная скидка статуса в % на все покупки (меняется в админке: 🎨 Мини-приложение → 🏅 Статусы).
 DEFAULT_STATUSES = [
-    {"name": "Генин", "min": 0, "emoji": "🍃"},
-    {"name": "Чунин", "min": 500, "emoji": "🌀"},
-    {"name": "Джонин", "min": 2000, "emoji": "⚡"},
-    {"name": "АНБУ", "min": 5000, "emoji": "🦊"},
-    {"name": "Саннин", "min": 10000, "emoji": "🐸"},
+    {"name": "Генин", "min": 0, "emoji": "🍃", "disc": 0},
+    {"name": "Чунин", "min": 500, "emoji": "🌀", "disc": 3},
+    {"name": "Джонин", "min": 2000, "emoji": "⚡", "disc": 4},
+    {"name": "АНБУ", "min": 5000, "emoji": "🦊", "disc": 5},
+    {"name": "Саннин", "min": 10000, "emoji": "🐸", "disc": 7},
 ]
+MAX_STATUS_DISC = 90
 
 
 def _drop_kage_once():
@@ -150,6 +152,19 @@ def user_status(u):
 def status_label(u):
     cur = user_status(u)[0]
     return f"{cur.get('emoji') or ''} {cur['name']}".strip()
+
+
+def disc_of(s):
+    """Скидка статуса в % (0, если не задана)."""
+    try:
+        return min(max(float(s.get("disc") or 0), 0), MAX_STATUS_DISC)
+    except (TypeError, ValueError, AttributeError):
+        return 0
+
+
+def status_discount(u):
+    """Постоянная скидка покупателя по его статусу, %."""
+    return disc_of(user_status(u)[0]) if u else 0
 
 
 # ---------- ежедневный бонус ----------

@@ -18,10 +18,22 @@ from ui import as_media, btn, kb, render, send_media
 CAPTION_MAX = 1024
 
 
+class _Safe(dict):
+    def __missing__(self, k):
+        return "{" + k + "}"
+
+
 def post_text(p, lang, bot_username):
     stock = "∞" if db.unlimited(p) else f"{db.stock(p['id'])} шт." if lang != "en" else f"{db.stock(p['id'])} pcs."
     link = f"https://t.me/{bot_username}?start=p_{p['id']}"
-    return t("restock_post", lang, name=name_html(p), price=money(p["price"]), stock=stock, link=link)
+    vals = dict(name=name_html(p), price=money(p["price"]), stock=stock, link=link)
+    own = p["restock_text"] if "restock_text" in p.keys() else None
+    if own:   # у товара свой текст пополнения (с премиум-эмодзи) — он важнее общего
+        try:
+            return own.format_map(_Safe(vals))
+        except (ValueError, IndexError, AttributeError):
+            return own
+    return t("restock_post", lang, **vals)
 
 
 def post_kb(p, lang):
@@ -36,6 +48,15 @@ async def send_post(bot: Bot, chat_id, p, lang, username):
         await bot.send_message(chat_id, text, reply_markup=post_kb(p, lang))
 
 
+async def cb_restock_preview_msg(target, pid, bot: Bot):
+    """Предпросмотр рассылки после того, как админ сохранил свой текст товара."""
+    p = db.product(pid)
+    if not p:
+        return await target.answer("Товар не найден")
+    me = await bot.me()
+    await _preview(target, p, me.username, len(db.all_user_ids()), "✅ Текст сохранён.\n\n")
+
+
 @router.callback_query(F.data.startswith("a:rsn:"))
 async def cb_restock_preview(call: CallbackQuery, bot: Bot):
     pid = int(call.data.split(":")[2])
@@ -43,14 +64,21 @@ async def cb_restock_preview(call: CallbackQuery, bot: Bot):
     if not p:
         return await call.answer("Товар не найден", show_alert=True)
     me = await bot.me()
-    n = len(db.all_user_ids())
-    await render(call, "📢 <b>Рассылка о пополнении</b>\n\nТак сообщение увидят покупатели (с фото товара, если оно есть):\n"
-                       "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n" + post_text(p, "ru", me.username), kb([
+    await _preview(call, p, me.username, len(db.all_user_ids()))
+    await call.answer()
+
+
+async def _preview(target, p, username, n, prefix=""):
+    pid = p["id"]
+    kind = "свой текст этого товара" if p["restock_text"] else "общий текст для всех товаров"
+    await render(target, prefix + f"📢 <b>Рассылка о пополнении</b> ({kind})\n\nТак сообщение увидят покупатели "
+                                  "(с фото товара, если оно есть):\n"
+                       "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n" + post_text(p, "ru", username), kb([
         [B(f"✅ Разослать всем ({n})", f"a:rsn2:{pid}", style="success")],
-        [B("✏️ Изменить текст рассылки", "a:tx:restock_post")],
+        [B("✏️ Текст для этого товара", f"a:pe:rstx:{pid}", style="primary")],
+        [B("📝 Общий текст (для всех товаров)", "a:tx:restock_post")],
         back(f"a:p:{pid}", "◀️ К товару"),
     ]))
-    await call.answer()
 
 
 @router.callback_query(F.data.startswith("a:rsn2:"))

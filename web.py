@@ -28,6 +28,7 @@ from aiohttp import web
 import admins
 import appcfg
 import config
+import crypto
 import db
 from texts import APP_TEXTS, fdate, money, status as order_status, t
 from ui import doc_text
@@ -387,13 +388,27 @@ def _icon_id(text):
     return m.group(1) if m else None
 
 
+def _days_since(joined):
+    try:
+        from datetime import datetime
+        return max((datetime.now() - datetime.strptime((joined or "")[:19], "%Y-%m-%d %H:%M:%S")).days, 0)
+    except ValueError:
+        return 0
+
+
 def user_block(u, tg, lang):
     cur, nxt, pct, left = appcfg.user_status(u)
     me_username = getattr(_bot_me, "username", "") if _bot_me else ""
+    paid = "status IN ('done','manual')"
     return {
         "id": u["id"], "username": u["username"], "first_name": u["first_name"], "photo_url": (tg or {}).get("photo_url"),
         "lang": lang, "balance": round(u["balance"], 2), "deposited": round(u["deposited"] or 0, 2),
         "status": cur, "next": nxt, "pct": pct, "left": left,
+        "disc": appcfg.disc_of(cur), "next_disc": appcfg.disc_of(nxt) if nxt else None,
+        "orders_30d": db.val(f"SELECT COUNT(*) FROM orders WHERE user_id=? AND {paid} "
+                             "AND created >= datetime('now','localtime','-30 days')", (u["id"],)),
+        "spent": round(db.val(f"SELECT COALESCE(SUM(price),0) FROM orders WHERE user_id=? AND {paid}", (u["id"],)) or 0, 2),
+        "days": _days_since(u["joined"]),
         "bonus_left": appcfg.bonus_left(u), "orders": db.count_user_orders(u["id"]), "joined": fdate(u["joined"]),
         "promo": {"code": u["promo_code"], "pct": u["promo_percent"]} if u["promo_percent"] else None,
         "ref": {"link": f"https://t.me/{me_username}?start=ref_{u['id']}" if me_username else "",
@@ -429,7 +444,9 @@ async def api_boot(request):
     cats = [cat_block(c) for c in db.categories() if c["id"] != sup and db.count_in_category(c["id"])]
     s = appcfg.season()
     shop = {
-        "title": appcfg.card_title(), "name": config.SHOP_NAME, "season": s, "badge": appcfg.badge(lang, s),
+        # название и бейдж — HTML с премиум-эмодзи (очищенный), title_plain — для заголовка вкладки
+        "title": sanitize(appcfg.card_title()), "title_plain": re.sub(r"<[^>]+>", "", appcfg.card_title()),
+        "name": config.SHOP_NAME, "season": s, "badge": sanitize(appcfg.badge(lang, s)),
         "accent": appcfg.accent(), "theme": appcfg.theme(), "fx": appcfg.fx_on(),
         "bg": media_url(db.get_setting("app_bg"), db.get_setting("app_bg_type")),
         "logo": media_url(db.get_setting("app_logo"), "photo"),
@@ -442,7 +459,9 @@ async def api_boot(request):
         "bot": getattr(_bot_me, "username", ""),
         "has_suppliers": bool(db.count_in_category(sup)), "suppliers_cid": sup,
         "docs": _docs_links(),
-        "pay": {"balance": not _hidden("pay_balance"), "sbp": not _hidden("pay_sbp"), "stars": True},
+        "pay": {"balance": not _hidden("pay_balance"), "sbp": not _hidden("pay_sbp"), "stars": True,
+                "cryptobot": crypto.enabled("cryptobot") and not _hidden("pay_cryptobot"),
+                "xrocket": crypto.enabled("xrocket") and not _hidden("pay_xrocket")},
     }
     return web.json_response({"ok": True, "shop": shop, "user": user_block(u, request["tg"], lang), "cats": cats})
 
@@ -457,10 +476,15 @@ async def api_me(request):
 
 
 async def api_list(request):
-    kind = request.query.get("kind", "new")
-    if not (kind in ("hits", "disc", "new", "fav", "srch", "recent") or re.fullmatch(r"c\d+", kind)):
+    kind = request.query.get("kind", "all")
+    if not (kind in ("all", "fav", "srch") or re.fullmatch(r"c\d+", kind)):
         return jerr("kind", "bad kind")
-    items = db.products_by(kind, request["user"]["id"], request.query.get("q", "")[:64])
+    if kind == "all":   # все товары витрины, кроме поставщиков
+        sup = db.suppliers_cid()
+        items = [p for p in db.q("SELECT * FROM products WHERE active=1 ORDER BY category_id, id")
+                 if p["category_id"] != sup]
+    else:
+        items = db.products_by(kind, request["user"]["id"], request.query.get("q", "")[:64])
     return web.json_response({"ok": True, "items": [product_block(p) for p in items[:200]]})
 
 
@@ -562,7 +586,29 @@ async def api_buy(request):
         await _bot.send_message(uid, text, reply_markup=kb([[btn("paid", lang, f"paid:{oid}")],
                                                             [btn("cancel", lang, f"oc:{oid}")]]))
         return web.json_response({"ok": True, "oid": oid, "sbp": True, "message": t("sbp_in_chat", lang)})
+    if method in crypto.SERVICES:
+        if not crypto.enabled(method):
+            return jerr("method", t("crypto_off", lang))
+        oid = db.create_order(uid, p, price, method, "wait_pay", code, qty)
+        try:
+            inv, extra = await crypto.create("order", oid, uid, method, price, t("stars_desc", lang, oid=oid, name=name))
+        except crypto.CryptoError as e:
+            logging.warning("crypto invoice for order %s: %s", oid, e)
+            db.set_order(oid, status="canceled")
+            return jerr("crypto", t("crypto_error", lang), 502)
+        if code:
+            db.consume_promo(uid)
+        return web.json_response({"ok": True, "oid": oid, "crypto": {"id": inv["id"], "url": inv["url"],
+                                                                     "service": crypto.SERVICES[method], "extra": extra}})
     return jerr("method", "unknown method")
+
+
+async def api_crypto_check(request):
+    """Мини-приложение спрашивает, оплачен ли крипто-счёт."""
+    iid = int((await _json(request)).get("id") or 0)
+    res = await crypto.check(_bot, iid, request["user"]["id"])
+    return web.json_response({"ok": True, "status": res,
+                              "user": user_block(db.get_user(request["user"]["id"]), request["tg"], request["lang"])})
 
 
 async def api_bonus(request):
@@ -593,6 +639,16 @@ async def api_topup(request):
             return jerr("method", "method off")
         await start_sbp(_bot, uid, amount, lang)
         return web.json_response({"ok": True, "sbp": True, "message": t("sbp_in_chat", lang)})
+    method = data.get("method")
+    if method in crypto.SERVICES:
+        if not crypto.enabled(method):
+            return jerr("method", t("crypto_off", lang))
+        from handlers.cryptopay import start_topup
+        inv, extra, _ = await start_topup(uid, amount, method, lang)
+        if not inv:
+            return jerr("crypto", t("crypto_error", lang), 502)
+        return web.json_response({"ok": True, "crypto": {"id": inv["id"], "url": inv["url"],
+                                                         "service": crypto.SERVICES[method], "extra": extra}})
     return jerr("method", "unknown method")
 
 
@@ -908,7 +964,8 @@ async def start(bot=None):
     app.router.add_get("/api/product/{pid:\\d+}", api_product)
     app.router.add_get("/api/orders", api_orders)
     for path, fn in (("fav", api_fav), ("notify", api_notify), ("buy", api_buy), ("bonus", api_bonus),
-                     ("topup", api_topup), ("promo", api_promo), ("lang", api_lang), ("agree", api_agree)):
+                     ("topup", api_topup), ("promo", api_promo), ("lang", api_lang), ("agree", api_agree),
+                     ("crypto_check", api_crypto_check)):
         app.router.add_post(f"/api/{path}", fn)
     app.router.add_post("/api/admin/product/{pid:\\d+}", api_admin_product)
     app.router.add_post("/api/admin/category/{cid:\\d+}", api_admin_category)

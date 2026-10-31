@@ -63,6 +63,7 @@ def admin_kb():
         [B("🎨 Мини-приложение", "a:app", style="primary"), B("✏️ Оформление бота", "a:design")],
         [B("📢 Рассылка", "a:bc"), B("🎟 Промокоды", "a:promos")],
         [B("⚙️ Настройки", "a:settings"), B("📣 Подписка", "a:subs")],
+        [B("💎 Криптооплата", "a:cry")],
         [B("📄 Документы", "a:docs"), B("👮 Админы", "a:adm")],
         ([B("🔐 Codex", "a:cx")] + ([] if config.CHILD else [B("🤖 Боты клиентов", "a:hb")])),
         [B("💾 База и бэкапы", "a:bk")],
@@ -479,6 +480,7 @@ def admin_product_text(p):
             f"{'🔴 Помечен «Нет в наличии» — купить нельзя' if p['soldout'] else '🟢 Продаётся'}\n"
             f"⭐ Оплата звёздами: {'выключена' if p['no_stars'] else 'включена'}\n"
             f"🔢 Покупка по количеству: {qty_info}\n"
+            f"📢 Текст пополнения: {'свой' if p['restock_text'] else 'общий'}\n"
             f"👁 Виден покупателям: {'да' if p['active'] else 'нет'}\n"
             f"🖼 Карточка: {MEDIA_NAMES.get(p['media_type'] or 'photo') if p['photo'] else 'нет'}\n\n"
             f"📝 Описание:\n{p['description'] or '—'}")
@@ -506,6 +508,7 @@ async def show_admin_product(target, pid, prefix=""):
                  B(f"🔢 Кол-во: от {p['min_qty']}" if p["min_qty"] else "🔢 По количеству: ВЫКЛ", f"a:pe:minq:{pid}")])
     rows.append([B("👁 Содержимое товара (что на складе)", f"a:pv:{pid}:0", style="primary")])
     rows.append([B("📢 Уведомить всех о пополнении", f"a:rsn:{pid}", style="success")])
+    rows.append([B(("✏️ " if p["restock_text"] else "") + "📝 Текст пополнения этого товара", f"a:pe:rstx:{pid}")])
     kind_btn = [] if p["kind"] == "ext" else [B("🔧 Тип выдачи", f"a:pkind:{pid}")]
     rows += [
         [B("📁 Категория", f"a:pcat:{pid}")] + kind_btn,
@@ -557,6 +560,11 @@ PE_PROMPTS = {
             "Покупатель сам вводит, сколько штук ему нужно (не меньше минимума), бот считает итог: "
             "<b>цена товара × количество</b>. Поэтому в «💰 Цена» укажите цену <b>за 1 шт.</b> "
             "(например, за 1 звезду).\n\n<code>0</code> — выключить.",
+    "rstx": "📢 <b>Текст рассылки о пополнении этого товара</b>\n\nОтправьте текст сообщения — можно с "
+            "<b>премиум-эмодзи</b>, жирным, курсивом и ссылками, бот всё сохранит. Фото товара прикрепится само.\n\n"
+            "Подставляются: <code>{name}</code> — название, <code>{price}</code> — цена, <code>{stock}</code> — "
+            "остаток, <code>{link}</code> — ссылка на товар. Под сообщением будет кнопка «Открыть товар».\n\n"
+            "<code>-</code> — вернуть общий текст.",
 }
 
 
@@ -590,6 +598,16 @@ async def i_pedit(m, state, d, txt, bot):
         db.update_product(pid, name=name[:100], emoji_id=icon)
     elif field == "desc":
         db.update_product(pid, description="" if txt == "-" else m.html_text)
+    elif field == "rstx":
+        if txt == "-":
+            db.update_product(pid, restock_text=None)
+        elif not m.text:
+            return await m.answer("Отправьте текст сообщением (фото товара прикрепится само) или <code>-</code>:")
+        else:
+            db.update_product(pid, restock_text=m.html_text[:3500])
+        await state.clear()
+        from handlers.restock import cb_restock_preview_msg
+        return await cb_restock_preview_msg(m, pid, bot)
     elif field == "minq":
         if not txt.isdigit() or int(txt) > 1_000_000:
             return await m.answer("Отправьте целое число (например <code>50</code>) или <code>0</code>, чтобы выключить:")

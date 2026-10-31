@@ -74,9 +74,9 @@ def kb(rows):
 VIS_GROUPS = (
     ("🏠 Главное меню", ("shop", "codex") + (() if config.CHILD else ("mkbot",)) +
      ("suppliers", "orders", "profile", "refs", "promo", "lang", "reviews", "support", "docs")),
-    ("🛍 Каталог", ("hits", "disc", "new", "recent", "search", "fav")),
+    ("🛍 Каталог", ("search", "fav")),
     ("👤 Профиль и рефералы", ("my_orders", "invite", "withdraw", "refresh")),
-    ("🧾 Карточка товара и оплата", ("fav_add", "notify", "pay_balance", "pay_sbp")),
+    ("🧾 Карточка товара и оплата", ("fav_add", "notify", "pay_balance", "pay_sbp", "pay_cryptobot", "pay_xrocket")),
 )
 MAIN_KEYS = VIS_GROUPS[0][1]
 HIDEABLE = tuple(k for _, keys in VIS_GROUPS for k in keys)

@@ -44,9 +44,9 @@ async def app_view(target, prefix=""):
         f"{prefix}🎨 <b>Мини-приложение</b>",
         "<blockquote>"
         f"🌐 Адрес: {html.escape(url) if url else '❗ не настроен — укажите https-адрес сайта бота'}\n"
-        f"🎭 Стиль: <b>{appcfg.SEASONS[season][0]}</b> · бейдж «{html.escape(appcfg.badge('ru'))}»\n"
+        f"🎭 Стиль: <b>{appcfg.SEASONS[season][0]}</b> · бейдж «{_plain(appcfg.badge('ru'))}»\n"
         f"🌓 Тема по умолчанию: <b>{appcfg.THEMES[appcfg.theme()]}</b>\n"
-        f"🏷 Название на карточке: <b>{html.escape(appcfg.card_title())}</b>\n"
+        f"🏷 Название на карточке: <b>{_plain(appcfg.card_title())}</b>\n"
         f"🎨 Акцент: <code>{appcfg.accent()}</code>\n"
         f"🖼 Фон карточки: {MEDIA_NAMES.get(db.get_setting('app_bg_type') or 'photo') if bg else 'стандартный'}\n"
         f"🔵 Логотип: {'свой' if logo else 'нет'} · 🌌 Обои: {'своё фото' if wall else 'чёрные как в Telegram'}\n"
@@ -121,10 +121,17 @@ async def cb_fx(call: CallbackQuery):
     await app_view(call)
 
 
+def _plain(x):
+    """Текст без HTML-тегов (премиум-эмодзи — обычными символами) — для сводок админки."""
+    import re
+    return html.escape(re.sub(r"<[^>]+>", "", x or ""))
+
+
 # ---------- текстовые значения ----------
 APP_VALUES = {
     "app_title": ("🏷 Название на карточке", "Отправьте название магазина для карточки на главной "
-                                           "(например <code>Snow Shop</code>). <code>-</code> — как у бота."),
+                                           "(например <code>Snow Shop</code>). Можно с <b>премиум-эмодзи</b>. "
+                                           "<code>-</code> — как у бота."),
     "app_accent": ("🎨 Акцентный цвет", "Отправьте цвет в формате <code>#ff7a1a</code> — им подсветятся кнопки и "
                                        "акценты. <code>-</code> — цвет текущего сезона."),
 }
@@ -147,7 +154,10 @@ async def i_value(m, state, d, txt, bot):
             return await m.answer("Нужен цвет вида <code>#ff7a1a</code>:")
         db.set_setting(key, "#" + txt.lstrip("#").lower())
     else:
-        db.set_setting(key, txt[:40])
+        if len(txt) > 40:
+            return await m.answer("Слишком длинно — до 40 символов. Ещё раз:")
+        # html_text сохраняет премиум-эмодзи (<tg-emoji>) — мини-приложение покажет их анимированными
+        db.set_setting(key, m.html_text if m.text else txt)
     await state.clear()
     await app_view(m, "✅ Сохранено\n\n")
 
@@ -156,10 +166,11 @@ async def i_value(m, state, d, txt, bot):
 async def cb_badge(call: CallbackQuery, state: FSMContext):
     s = appcfg.season()
     await ask(call, state, "appbadge",
-              f"🎃 <b>Текст бейджа</b> для стиля {appcfg.SEASONS[s][0]}\n\nСейчас: «{html.escape(appcfg.badge('ru'))}» / "
-              f"«{html.escape(appcfg.badge('en'))}»\n\nОтправьте текст в формате <code>RU | EN</code>, например "
+              f"🎃 <b>Текст бейджа</b> для стиля {appcfg.SEASONS[s][0]}\n\nСейчас: «{_plain(appcfg.badge('ru'))}» / "
+              f"«{_plain(appcfg.badge('en'))}»\n\nОтправьте текст в формате <code>RU | EN</code>, например "
               "<code>Хэллоуин | Halloween</code>.\n<code>-</code> — вернуть стандартный.\n\n"
-              "💎 Иконку бейджа (вместо анимированной тыквы) можно поставить в «💎 Иконки» → «Бейдж сезона».",
+              "💎 В текст можно вставить <b>премиум-эмодзи</b> — они будут анимированными. Иконку бейджа (вместо "
+              "анимированной тыквы) можно поставить в «💎 Иконки» → «Бейдж сезона».",
               cancel="a:app", season=s)
 
 
@@ -170,9 +181,13 @@ async def i_badge(m, state, d, txt, bot):
         db.set_setting(f"app_badge:{s}:ru", None)
         db.set_setting(f"app_badge:{s}:en", None)
     else:
-        ru, _, en = txt.partition("|")
-        db.set_setting(f"app_badge:{s}:ru", ru.strip()[:24])
-        db.set_setting(f"app_badge:{s}:en", (en.strip() or ru.strip())[:24])
+        raw = m.html_text if m.text else txt   # с премиум-эмодзи
+        ru, _, en = raw.partition("|")
+        plain_ru, _, plain_en = txt.partition("|")
+        if len(plain_ru.strip()) > 24 or len(plain_en.strip()) > 24:
+            return await m.answer("Слишком длинно — до 24 символов на язык. Ещё раз:")
+        db.set_setting(f"app_badge:{s}:ru", ru.strip())
+        db.set_setting(f"app_badge:{s}:en", en.strip() or ru.strip())
     await state.clear()
     await app_view(m, "✅ Бейдж сохранён\n\n")
 
@@ -290,7 +305,8 @@ def statuses_text():
     lines = []
     for s in appcfg.statuses():
         icon = "💎" if s.get("emoji_id") else (s.get("emoji") or "•")
-        lines.append(f"{icon} <b>{html.escape(s['name'])}</b> — от {money(s['min'])}")
+        d = appcfg.disc_of(s)
+        lines.append(f"{icon} <b>{html.escape(s['name'])}</b> — от {money(s['min'])}" + (f" · скидка {d:g}%" if d else ""))
     return "\n".join(lines)
 
 
@@ -298,7 +314,8 @@ def statuses_text():
 async def cb_statuses(call: CallbackQuery):
     await render(call, "🏅 <b>Статусы покупателей</b>\n\nСтатус зависит от суммы реальных денег, которые покупатель "
                        "внёс в бота: пополнения баланса и оплаты по СБП / звёздами (бонусы и начисления от админа не "
-                       f"считаются).\n\n<blockquote>{statuses_text()}</blockquote>", kb([
+                       "считаются). Скидка статуса действует на все покупки; с промокодом не складывается — "
+                       f"берётся большая.\n\n<blockquote>{statuses_text()}</blockquote>", kb([
         [B("✏️ Изменить список", "a:ste", style="primary")],
         [B("♻️ Вернуть стандартные", "a:str")],
         back("a:app"),
@@ -308,9 +325,11 @@ async def cb_statuses(call: CallbackQuery):
 
 @router.callback_query(F.data == "a:ste")
 async def cb_statuses_edit(call: CallbackQuery, state: FSMContext):
-    sample = "\n".join(f"{s.get('emoji') or ''} {s['name']} | {int(s['min'])}".strip() for s in appcfg.statuses())
+    sample = "\n".join(f"{s.get('emoji') or ''} {s['name']} | {int(s['min'])} | {appcfg.disc_of(s):g}".strip()
+                       for s in appcfg.statuses())
     await ask(call, state, "ste", "✏️ Отправьте список статусов — <b>по одному в строке</b>:\n"
-                                  "<code>эмодзи Название | от скольких ₽</code>\n\nСейчас:\n"
+                                  "<code>эмодзи Название | от скольких ₽ | скидка %</code>\n"
+                                  "Скидку можно не писать — тогда её нет.\n\nСейчас:\n"
                                   f"<code>{html.escape(sample)}</code>\n\n"
                                   "💎 Эмодзи в начале строки может быть <b>премиум</b> — оно станет иконкой статуса. "
                                   "Первый статус должен начинаться с 0.", cancel="a:st")
@@ -338,16 +357,21 @@ async def i_statuses(m, state, d, txt, bot):
     for i, line in enumerate((m.text or "").split("\n")):
         if not line.strip():
             continue
-        name, sep, amount = line.rpartition("|")
-        v = parse_amount(amount.strip())
-        if not sep or v is None or v < 0:
-            return await m.answer(f"Строка «{html.escape(line)}»: нужен формат <code>Название | сумма</code>. Ещё раз:")
-        name = name.strip()
+        parts_ = [x.strip() for x in line.split("|")]
+        if len(parts_) < 2 or len(parts_) > 3:
+            return await m.answer(f"Строка «{html.escape(line)}»: нужен формат "
+                                  "<code>Название | сумма | скидка %</code>. Ещё раз:")
+        name, amount = parts_[0], parts_[1]
+        v = parse_amount(amount)
+        disc = parse_amount(parts_[2].rstrip("%").strip()) if len(parts_) == 3 and parts_[2] else 0
+        if v is None or v < 0 or disc is None or not 0 <= disc <= appcfg.MAX_STATUS_DISC:
+            return await m.answer(f"Строка «{html.escape(line)}»: сумма — число, скидка — от 0 до "
+                                  f"{appcfg.MAX_STATUS_DISC}%. Ещё раз:")
         emoji = ""
         parts = name.split(" ", 1)
         if len(parts) == 2 and not any(ch.isalnum() for ch in parts[0]):
             emoji, name = parts[0], parts[1].strip()
-        item = {"name": name[:24], "min": v, "emoji": emoji[:8]}
+        item = {"name": name[:24], "min": v, "emoji": emoji[:8], "disc": disc}
         if i in icons:
             item["emoji_id"] = icons[i]
         items.append(item)

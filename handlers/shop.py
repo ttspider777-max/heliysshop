@@ -10,6 +10,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, Message
 
 import admins
+import appcfg
 import config
 import db
 from services import final_price, fulfill, user_link
@@ -51,9 +52,8 @@ async def cb_catalog(call: CallbackQuery, state: FSMContext, lang: str):
     if row:
         rows.append(row)
     lines += [DIVIDER, t("catalog_body", lang)]
+    # подборки «Хиты / Скидки / Новинки / Недавние» убраны — остались поиск и избранное
     rows += [
-        [btn("hits", lang, "l:hits:0"), btn("disc", lang, "l:disc:0")],
-        [btn("new", lang, "l:new:0"), btn("recent", lang, "l:recent:0")],
         [btn("search", lang, "search"), btn("fav", lang, "l:fav:0")],
         menu_row(lang),
     ]
@@ -159,9 +159,12 @@ def product_text(p, lang, u):
         lines.append(t("price_disc", lang, old=money(p["old_price"]), price=money(p["price"]), pct=pct))
     else:
         lines.append(t("price", lang, price=money(p["price"])) + (t("per_item", lang) if p["min_qty"] else ""))
-    if u["promo_percent"]:
-        fp, _, code = final_price(u, p["price"])
+    fp, pct, code = final_price(u, p["price"])
+    if pct and code:
         lines.append(t("promo_applied", lang, code=html.escape(code), price=money(fp)))
+    elif pct:   # сработала скидка статуса
+        lines.append(t("status_disc_applied", lang, status=html.escape(appcfg.status_label(u)), pct=f"{pct:g}",
+                       price=money(fp)))
     if not in_stock(p):
         lines.append(t("stock_out", lang))
     elif db.unlimited(p):
@@ -295,10 +298,12 @@ async def show_checkout(call: CallbackQuery, p, kind, qty, lang):
     total, _, _ = total_price(u, p, qty)
     name = html.escape(p["name"]) + (f" × {qty}" if qty > 1 else "")
     back_cb = f"qty:{p['id']}:{kind}:{qty}" if is_multi(p) else f"p:{p['id']}:{kind}"
+    from handlers.cryptopay import crypto_buttons
     stars_row = [btn("pay_stars", lang, f"pz:{p['id']}:{qty}")] if stars_ok(p) else []
     await render(call, t("choose_pay", lang, name=name, price=money(total), balance=money(u["balance"])), kb([
         [btn("pay_balance", lang, f"pb:{p['id']}:{qty}"), btn("pay_sbp", lang, f"ps:{p['id']}:{qty}")],
         stars_row,
+        crypto_buttons(lang, f"pc:{p['id']}:{qty}"),
         legal_row(lang),
         [btn("back", lang, back_cb), btn("main_menu", lang, "menu")],
     ]))

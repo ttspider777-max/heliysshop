@@ -82,9 +82,11 @@ def method_kb(lang, amount):
     stars = btn("pay_stars", lang, f"tu:st:{a}")
     if stars:
         stars.text = f"{stars.text} · {stars_for(amount)} ⭐"
+    from handlers.cryptopay import crypto_buttons
     return kb([
         [btn("pay_sbp", lang, f"tu:sbp:{a}")],
         [stars],
+        crypto_buttons(lang, f"tc:{a}"),
         [btn("back", lang, "topup")],
     ])
 

@@ -12,8 +12,9 @@ import ext
 import hosting
 import web
 # admin_extra, admin_app и restock регистрируют хендлеры на admin.router
-from handlers import (admin, admin_app, admin_extra, builder, codex, legal, payments, restock, shop, support,  # noqa: F401
-                      topup, user)
+from handlers import (admin, admin_app, admin_extra, builder, codex, cryptopay, legal, payments, restock, shop,  # noqa: F401
+                      support, topup, user)
+import crypto
 from middlewares import UserMiddleware
 
 
@@ -31,7 +32,7 @@ async def main():
     # порядок важен: /start и меню -> ввод в админке -> поддержка -> магазин
     # builder, codex, topup — до shop, чтобы чеки и токен не ушли в обработчики магазина
     dp.include_routers(user.router, legal.router, admin.router, support.router, builder.router, codex.router,
-                       topup.router, payments.router, shop.router)
+                       topup.router, payments.router, cryptopay.router, shop.router)
     await bot.set_my_commands([
         BotCommand(command="start", description="Главное меню / Main menu"),
         BotCommand(command="terms", description="Пользовательское соглашение"),
@@ -42,7 +43,8 @@ async def main():
     site = await web.start(bot)
     await web.setup_menu_button(bot)  # кнопка «Магазин» у поля ввода открывает мини-приложение
     tasks = [asyncio.create_task(ext.sync_loop()),                     # автообновление остатков внешних магазинов
-             asyncio.create_task(admin_app.auto_backup_loop(bot))]     # автобэкап базы владельцам раз в сутки
+             asyncio.create_task(admin_app.auto_backup_loop(bot)),     # автобэкап базы владельцам раз в сутки
+             asyncio.create_task(crypto.checker(bot))]                 # проверка оплат CryptoBot / xRocket
     if not config.CHILD:
         hosting.start_all(bot)  # боты клиентов («🤖 Создать своего бота»)
     logging.info("%s bot started%s", config.SHOP_NAME, " (бот клиента)" if config.CHILD else "")

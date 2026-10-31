@@ -14,9 +14,16 @@ from ui import btn, kb
 
 
 def final_price(u, price):
-    """Цена с учётом активного промокода пользователя -> (цена, процент, код)."""
-    pct = u["promo_percent"] or 0
-    code = u["promo_code"] if pct else None
+    """Цена со скидкой покупателя -> (цена, процент, код промокода или None).
+    Скидки не складываются: берётся большая из двух — скидка статуса или активный промокод.
+    Код возвращается, только если сработал промокод (тогда он и расходуется)."""
+    import appcfg
+    promo = u["promo_percent"] or 0
+    status = appcfg.status_discount(u)
+    if promo and promo >= status:
+        pct, code = promo, u["promo_code"]
+    else:
+        pct, code = status, None
     return round(price * (100 - pct) / 100, 2), pct, code
 
 

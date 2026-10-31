@@ -143,6 +143,18 @@ CREATE TABLE IF NOT EXISTS topups (
     receipt TEXT,
     created TEXT
 );
+CREATE TABLE IF NOT EXISTS crypto_invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT,          -- order / topup
+    ref_id INTEGER,     -- id заказа или пополнения
+    user_id INTEGER,
+    method TEXT,        -- cryptobot / xrocket
+    ext_id TEXT,
+    url TEXT,
+    amount REAL,        -- сумма в рублях
+    status TEXT,        -- pending / paid / expired
+    created INTEGER
+);
 CREATE INDEX IF NOT EXISTS idx_items_prod ON items(product_id, sold);
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_tmsg ON ticket_msgs(ticket_id);
@@ -190,7 +202,8 @@ def _migrate():
                             ("users", "bonus_at", "TEXT"),            # когда забирал ежедневный бонус
                             ("products", "soldout", "INTEGER DEFAULT 0"),   # админ пометил «нет в наличии»
                             ("products", "no_stars", "INTEGER DEFAULT 0"),  # оплата звёздами для товара выключена
-                            ("products", "min_qty", "INTEGER DEFAULT 0")):  # >0 — покупка по количеству, от N шт.
+                            ("products", "min_qty", "INTEGER DEFAULT 0"),   # >0 — покупка по количеству, от N шт.
+                            ("products", "restock_text", "TEXT")):          # свой текст рассылки о пополнении
         cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})")]
         if col not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
@@ -525,7 +538,7 @@ VISIBLE = "status NOT IN ('wait_pay','canceled')"
 
 def last_wait_pay(uid):
     """Последний заказ пользователя, ожидающий чек (за последние сутки)."""
-    return q1("""SELECT * FROM orders WHERE user_id=? AND status='wait_pay' AND method!='stars'
+    return q1("""SELECT * FROM orders WHERE user_id=? AND status='wait_pay' AND method='sbp'
                  AND created >= datetime('now','localtime','-1 day') ORDER BY id DESC LIMIT 1""", (uid,))
 
 
