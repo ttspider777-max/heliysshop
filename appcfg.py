@@ -96,11 +96,27 @@ DEFAULT_STATUSES = [
     {"name": "Джонин", "min": 2000, "emoji": "⚡"},
     {"name": "АНБУ", "min": 5000, "emoji": "🦊"},
     {"name": "Саннин", "min": 10000, "emoji": "🐸"},
-    {"name": "Каге", "min": 25000, "emoji": "👑"},
 ]
 
 
+def _drop_kage_once():
+    """Разово убирает статус «Каге» (от 25 000 ₽) из уже сохранённого списка: максимум теперь «Саннин», 10 000 ₽.
+    Статусы, которые админ добавит после этого, не трогаются."""
+    if db.get_setting("mig_no_kage"):
+        return
+    try:
+        data = json.loads(db.get_setting("statuses") or "null")
+        if isinstance(data, list):
+            left = [s for s in data if not (s.get("name") == "Каге" and float(s.get("min") or 0) == 25000)]
+            if left and len(left) != len(data):
+                save_statuses(left)
+    except (ValueError, TypeError, AttributeError):
+        pass
+    db.set_setting("mig_no_kage", "1")
+
+
 def statuses():
+    _drop_kage_once()
     try:
         data = json.loads(db.get_setting("statuses") or "null")
         if isinstance(data, list) and data:
