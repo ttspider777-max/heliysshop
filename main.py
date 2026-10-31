@@ -54,6 +54,7 @@ async def main():
              asyncio.create_task(crypto.checker(bot))]                 # проверка оплат CryptoBot / xRocket
     if not config.CHILD:
         hosting.start_all(bot)  # боты клиентов («🤖 Создать своего бота»)
+        tasks.append(asyncio.create_task(builder.trial_loop(bot)))  # выключение после пробного периода
     logging.info("%s bot started%s", config.SHOP_NAME, " (бот клиента)" if config.CHILD else "")
     try:
         await dp.start_polling(bot)

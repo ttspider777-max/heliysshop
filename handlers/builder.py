@@ -53,23 +53,91 @@ def bot_name(b):
     return "@" + html.escape(b["username"]) if b["username"] else f"#{b['id']}"
 
 
+# ---------- пробный период ----------
+def trial_days():
+    """Сколько дней бесплатно (⚙️ Настройки → 🎁 Пробный период; 0 — пробного нет)."""
+    try:
+        return max(int(float(db.get_setting("trial_days", 3))), 0)
+    except ValueError:
+        return 3
+
+
+def fmt_until(ts):
+    return f"{ts[8:10]}.{ts[5:7]} {ts[11:16]}" if ts and len(ts) >= 16 else "—"
+
+
+def add_days(days, base=None):
+    from datetime import datetime, timedelta
+    start = datetime.strptime(base, "%Y-%m-%d %H:%M:%S") if base else datetime.now()
+    return (max(start, datetime.now()) + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def buy_kb(bid, lang):
+    return kb([[btn("mb_buy", lang, f"mb:buy:{bid}")], [btn("main_menu", lang, "menu")]])
+
+
 # ======================= покупатель =======================
 async def info_view(target, lang, uid):
     text = t("mb_info", lang, price=money(bot_price()))
     rows = [[btn("mb_read", lang, "mb:read")]]
+    days = trial_days()
+    if days and not db.trial_used(uid):
+        text += t("mb_trial_offer", lang, days=days)
+        rows.insert(0, [btn("mb_trial", lang, "mb:trial")])
     bots = db.user_hosted(uid)
     if bots:
         text += t("mb_bots_head", lang)
         for b in bots[:10]:
             text += t("mb_bot_line", lang, name=bot_name(b), status=bot_status(b["status"], lang))
+            if b["trial_until"] and b["status"] != "expired":
+                text += t("mb_trial_line", lang, until=fmt_until(b["trial_until"]))
             if b["status"] == "running" and b["username"]:
                 rows.append([raw_btn(f"🤖 @{b['username']}", url=f"https://t.me/{b['username']}")])
             elif b["status"] == "failed":
                 rows.append([raw_btn(f"{bt('mb_token', lang)} · @{b['username']}", f"mb:tok:{b['id']}")])
+            if b["trial_until"] and b["token"] and b["pay_status"] != "pending":
+                rows.append([raw_btn(f"{bt('mb_buy', lang)} · {bot_name(b)} · {money(bot_price())}",
+                                     f"mb:buy:{b['id']}", style="success")])
         if any(b["status"] == "wait_token" for b in bots):
             text += t("mb_send_token", lang)
     rows.append(menu_row(lang))
     await render(target, text, kb(rows))
+
+
+@router.callback_query(F.data == "mb:trial")
+async def cb_trial(call: CallbackQuery, state: FSMContext, lang: str):
+    uid = call.from_user.id
+    await state.set_state(None)
+    days = trial_days()
+    if not days or db.trial_used(uid):
+        return await call.answer(t("mb_trial_used", lang), show_alert=True)
+    if db.hosted_wait_token(uid):  # уже ждём токен (оплаченный бот) — сначала его
+        await call.answer()
+        return await info_view(call, lang, uid)
+    bid = db.create_hosted(uid, 0)
+    db.set_hosted(bid, status="wait_token", trial=1)
+    await render(call, t("mb_trial_start", lang, days=days), kb([[btn("back", lang, "mkbot")]]))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("mb:buy:"))
+async def cb_buy(call: CallbackQuery, state: FSMContext, lang: str):
+    """Покупка пробного бота: те же реквизиты СБП и чек, после одобрения бот становится бессрочным."""
+    bid = int(call.data.split(":")[2])
+    b = db.hosted(bid)
+    if not b or b["user_id"] != call.from_user.id or not b["trial_until"] or not b["token"]:
+        return await call.answer(t("order_bad", lang), show_alert=True)
+    if b["pay_status"] == "pending":
+        return await call.answer(t("mb_buy_receipt_sent", lang), show_alert=True)
+    await state.set_state(None)
+    price = bot_price()
+    db.set_hosted(bid, pay_status="wait_pay", pay_at=db.now(), price=price)
+    await render(call, t("mb_buy_pay", lang, username=html.escape(b["username"] or "?"), price=money(price),
+                         details=db.get_setting("sbp_details", config.SBP_DETAILS)), kb([
+        [btn("paid", lang, f"mb:paid:{bid}")],
+        [btn("cancel", lang, f"mb:cancel:{bid}")],
+    ]))
+    await call.answer()
 
 
 @router.callback_query(F.data == "mkbot")
@@ -85,6 +153,9 @@ async def cb_read(call: CallbackQuery, state: FSMContext, lang: str):
     await state.set_state(None)
     # старые неоплаченные заявки больше не нужны
     db.x("UPDATE hosted_bots SET status='canceled' WHERE user_id=? AND status='wait_pay'", (uid,))
+    # пробный, на который так и не прислали токен, — отменяем, чтобы токен после оплаты попал в купленного бота
+    db.x("UPDATE hosted_bots SET status='canceled' WHERE user_id=? AND trial=1 AND status='wait_token' "
+         "AND tg_id IS NULL", (uid,))
     price = bot_price()
     bid = db.create_hosted(uid, price)
     await render(call, t("mb_pay", lang, bid=bid, price=money(price),
@@ -99,7 +170,7 @@ async def cb_read(call: CallbackQuery, state: FSMContext, lang: str):
 async def cb_paid(call: CallbackQuery, state: FSMContext, lang: str):
     bid = int(call.data.split(":")[2])
     b = db.hosted(bid)
-    if not b or b["user_id"] != call.from_user.id or b["status"] != "wait_pay":
+    if not b or b["user_id"] != call.from_user.id or not _waits_pay(b):
         return await call.answer(t("order_bad", lang), show_alert=True)
     await state.set_state(BuildSt.receipt)
     await state.update_data(mb_bid=bid)
@@ -111,8 +182,11 @@ async def cb_paid(call: CallbackQuery, state: FSMContext, lang: str):
 async def cb_cancel(call: CallbackQuery, state: FSMContext, lang: str):
     bid = int(call.data.split(":")[2])
     b = db.hosted(bid)
-    if b and b["user_id"] == call.from_user.id and b["status"] == "wait_pay":
-        db.set_hosted(bid, status="canceled")
+    if b and b["user_id"] == call.from_user.id:
+        if b["pay_status"] == "wait_pay":  # отказался покупать пробного бота — он остаётся как был
+            db.set_hosted(bid, pay_status=None)
+        elif b["status"] == "wait_pay":
+            db.set_hosted(bid, status="canceled")
     await state.set_state(None)
     await call.answer(t("order_canceled", lang))
     await info_view(call, lang, call.from_user.id)
@@ -123,7 +197,7 @@ async def msg_receipt(m: Message, state: FSMContext, lang: str, bot: Bot):
     bid = (await state.get_data()).get("mb_bid")
     await state.set_state(None)
     b = db.hosted(bid) if bid else None
-    if not b or b["status"] != "wait_pay":
+    if not b or not _waits_pay(b):
         b = db.hosted_wait_pay(m.from_user.id)
     if not b:
         return await m.answer(t("order_bad", lang), reply_markup=kb([menu_row(lang)]))
@@ -133,6 +207,11 @@ async def msg_receipt(m: Message, state: FSMContext, lang: str, bot: Bot):
 @router.message(BuildSt.receipt)
 async def msg_receipt_wrong(m: Message, lang: str):
     await m.answer(t("need_receipt", lang))
+
+
+def _waits_pay(b):
+    """Заявка ждёт чек: новый бот (status) или покупка пробного (pay_status)."""
+    return b["status"] == "wait_pay" or b["pay_status"] == "wait_pay"
 
 
 def _bot_receipt_expected(m: Message):
@@ -151,10 +230,16 @@ async def send_receipt(m: Message, b, lang: str, bot: Bot):
         file_id, is_photo = m.photo[-1].file_id, True
     else:
         file_id, is_photo = m.document.file_id, False
-    db.set_hosted(bid, status="pending", receipt=file_id)
+    buying_trial = b["pay_status"] == "wait_pay"
+    if buying_trial:
+        db.set_hosted(bid, pay_status="pending", receipt=file_id)
+    else:
+        db.set_hosted(bid, status="pending", receipt=file_id)
     u = db.get_user(m.from_user.id)
-    caption = (f"🤖 <b>Оплата создания бота — заявка #{bid}</b>\n\n👤 {user_link(u)}\n"
-               f"💰 Сумма: <b>{money(b['price'])}</b>")
+    caption = ((f"🤖 <b>Покупка пробного бота {bot_name(b)} — заявка #{bid}</b>\n"
+                f"📍 Сейчас: {bot_status(b['status'], 'ru')}\n\n") if buying_trial else
+               f"🤖 <b>Оплата создания бота — заявка #{bid}</b>\n\n") + \
+        f"👤 {user_link(u)}\n💰 Сумма: <b>{money(b['price'])}</b>"
     markup = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="✅ Одобрить", callback_data=f"a:hbok:{bid}", style="success"),
         InlineKeyboardButton(text="❌ Отклонить", callback_data=f"a:hbno:{bid}", style="danger"),
@@ -167,7 +252,8 @@ async def send_receipt(m: Message, b, lang: str, bot: Bot):
                 await bot.send_document(aid, file_id, caption=caption, reply_markup=markup)
         except Exception as e:
             logging.warning("не удалось отправить чек за бота админу %s: %s", aid, e)
-    await m.answer(t("mb_receipt_sent", lang), reply_markup=kb([menu_row(lang)]))
+    await m.answer(t("mb_buy_receipt_sent" if buying_trial else "mb_receipt_sent", lang),
+                   reply_markup=kb([menu_row(lang)]))
 
 
 # ---------- токен ----------
@@ -215,19 +301,32 @@ async def _accept_token(m: Message, token, lang, bot: Bot):
     other = db.hosted_by_tg(me.id)
     if me.id == bot.id or (other and other["id"] != b["id"]):
         return await wait.edit_text(t("mb_token_taken", lang))
+    # пробный период — один раз на Telegram-бота (иначе можно бесконечно пересоздавать пробный с тем же ботом)
+    if b["trial"] and me.id != b["tg_id"] and db.trial_used(tg_id=me.id):
+        return await wait.edit_text(t("mb_trial_used_bot", lang))
+    if b["trial_until"] and b["trial_until"] <= db.now():  # пробный уже закончился — новый токен не включит бота
+        db.set_hosted(b["id"], status="expired")
+        return await wait.edit_text(t("mb_trial_over", lang, username=html.escape(b["username"] or "?"),
+                                      price=money(bot_price())), reply_markup=buy_kb(b["id"], lang))
 
     first = not b["tg_id"]
-    db.set_hosted(b["id"], token=token, tg_id=me.id, username=me.username, shop_name=me.first_name,
+    fields = dict(token=token, tg_id=me.id, username=me.username, shop_name=me.first_name,
                   status="running", started=db.now())
+    if b["trial"] and not b["trial_until"]:  # отсчёт пробного периода — с момента запуска
+        fields["trial_until"] = add_days(trial_days() or 3)
+    db.set_hosted(b["id"], **fields)
+    b = db.hosted(b["id"])
     ok = await hosting.launch(b["id"])
     u = db.get_user(uid)
+    trial_note = t("mb_trial_started", lang, until=fmt_until(b["trial_until"])) if b["trial_until"] else ""
     if ok:
-        await wait.edit_text(t("mb_started", lang, username=html.escape(me.username)), reply_markup=kb([
+        await wait.edit_text(t("mb_started", lang, username=html.escape(me.username)) + trial_note, reply_markup=kb([
             [raw_btn(f"🤖 @{me.username}", url=f"https://t.me/{me.username}", style="success")],
             menu_row(lang),
         ]))
         await to_admins(bot, f"🤖 <b>Бот клиента {'запущен' if first else 'перезапущен с новым токеном'}</b>\n\n"
-                             f"🆔 Заявка #{b['id']}\n🤖 @{html.escape(me.username)}\n👤 Владелец: {user_link(u)}")
+                             f"🆔 Заявка #{b['id']}\n🤖 @{html.escape(me.username)}\n👤 Владелец: {user_link(u)}"
+                             + (f"\n🎁 Пробный до {fmt_until(b['trial_until'])}" if b["trial_until"] else ""))
     else:
         await wait.edit_text(t("mb_start_fail", lang, username=html.escape(me.username)),
                              reply_markup=kb([menu_row(lang)]))
@@ -252,6 +351,8 @@ async def cb_new_token(call: CallbackQuery, lang: str):
 async def cb_hb_receipt(call: CallbackQuery, bot: Bot):
     _, op, bid = call.data.split(":")
     b = db.hosted(int(bid))
+    if b and b["pay_status"] == "pending":  # покупка пробного бота
+        return await _trial_receipt(call, bot, b, op == "hbok")
     if not b or b["status"] != "pending":
         await mark_admin_msg(call, f"ℹ️ Уже обработана: {bot_status(b['status'], 'ru') if b else '—'}")
         return await call.answer("Заявка уже обработана", show_alert=True)
@@ -271,7 +372,68 @@ async def cb_hb_receipt(call: CallbackQuery, bot: Bot):
         await call.answer("Отклонено")
 
 
-STATUS_ICON = {"pending": "🔎", "wait_token": "🔑", "running": "✅", "stopped": "⏸", "failed": "⚠️", "rejected": "❌"}
+async def make_permanent(bot: Bot, b):
+    """Бот куплен (или админ сделал его бессрочным): снимаем пробный срок и включаем, если он был выключен."""
+    db.set_hosted(b["id"], trial_until=None, pay_status=None)
+    if b["status"] == "expired" and b["token"]:
+        db.set_hosted(b["id"], status="running")
+        return await hosting.launch(b["id"])
+    return b["status"] == "running"
+
+
+async def _trial_receipt(call: CallbackQuery, bot: Bot, b, ok):
+    u = db.get_user(b["user_id"])
+    lang = u["lang"] if u else "ru"
+    who = html.escape(call.from_user.first_name)
+    name = html.escape(b["username"] or "?")
+    if ok:
+        running = await make_permanent(bot, b)
+        await safe_send(bot, b["user_id"], t("mb_bought", lang, username=name),
+                        kb([[raw_btn(f"🤖 @{b['username']}", url=f"https://t.me/{b['username']}", style="success")],
+                            [btn("main_menu", lang, "menu")]]) if b["username"] else None)
+        await mark_admin_msg(call, f"✅ Одобрено, бот бессрочный{'' if running else ' (не запустился — смотрите лог)'} "
+                                   f"({who})")
+        await call.answer("Одобрено")
+    else:
+        db.set_hosted(b["id"], pay_status=None)
+        await safe_send(bot, b["user_id"], t("mb_buy_rejected", lang, username=name), kb([[btn("support", lang, "sup")]]))
+        await mark_admin_msg(call, f"❌ Отклонено ({who})")
+        await call.answer("Отклонено")
+
+
+async def trial_loop(bot: Bot):
+    """Раз в минуту: напоминаем за сутки до конца пробного и выключаем ботов, у которых он закончился."""
+    while True:
+        try:
+            await _trial_tick(bot)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logging.exception("проверка пробных периодов не удалась")
+        await asyncio.sleep(60)
+
+
+async def _trial_tick(bot: Bot):
+    price = money(bot_price())
+    for b in db.trials_to_warn():
+        db.set_hosted(b["id"], trial_warned=1)
+        u = db.get_user(b["user_id"])
+        lang = u["lang"] if u else "ru"
+        await safe_send(bot, b["user_id"], t("mb_trial_soon", lang, username=html.escape(b["username"] or "?"),
+                                             until=fmt_until(b["trial_until"]), price=price), buy_kb(b["id"], lang))
+    for b in db.trials_to_expire():
+        db.set_hosted(b["id"], status="expired")
+        await hosting.stop(b["id"])
+        u = db.get_user(b["user_id"])
+        lang = u["lang"] if u else "ru"
+        await safe_send(bot, b["user_id"], t("mb_trial_over", lang, username=html.escape(b["username"] or "?"),
+                                             price=price), buy_kb(b["id"], lang) if b["token"] else None)
+        await to_admins(bot, f"⌛ Пробный период бота клиента #{b['id']} ({bot_name(b)}) закончился — бот выключен.\n"
+                             f"👤 Владелец: {user_link(u) if u else b['user_id']}")
+
+
+STATUS_ICON = {"pending": "🔎", "wait_token": "🔑", "running": "✅", "stopped": "⏸", "failed": "⚠️", "rejected": "❌",
+               "expired": "⌛"}
 
 
 @admin_router.callback_query(F.data == "a:hb")
@@ -292,7 +454,9 @@ async def hb_list(target, prefix=""):
     running = sum(1 for b in bots if b["status"] == "running")
     text = (f"{prefix}🤖 <b>Боты клиентов</b>\n\nРаботает: <b>{running}</b> · всего: <b>{len(bots)}</b>\n"
             f"Цена создания: <b>{money(bot_price())}</b> (⚙️ Настройки)\n\n"
-            "✅ работает · 🔑 ждёт токен · 🔎 чек на проверке · ⏸ остановлен · ⚠️ упал · ❌ отклонён")
+            f"🎁 Пробный период: <b>{trial_days() or 'выключен'}</b>{' дн.' if trial_days() else ''} (⚙️ Настройки)\n\n"
+            "✅ работает · 🔑 ждёт токен · 🔎 чек на проверке · ⏸ остановлен · ⚠️ упал · ❌ отклонён · "
+            "⌛ пробный закончился")
     if not bots:
         text += "\n\n<i>Пока никто не создал бота.</i>"
     await render(target, text, kb(rows))
@@ -308,8 +472,11 @@ async def hb_view(target, bid, prefix=""):
             f"👤 Владелец: {user_link(u) if u else b['user_id']}\n"
             f"📍 Статус: {bot_status(b['status'], 'ru')}"
             + (" (процесс работает)" if hosting.is_alive(b["id"]) else "") + "\n"
-            f"💰 Оплачено: {money(b['price'])}\n"
-            f"📅 Заявка: {fdate(b['created'])}\n"
+            + (f"🎁 Пробный до: <b>{fmt_until(b['trial_until'])}</b>"
+               + (" · 🔎 чек за покупку на проверке" if b["pay_status"] == "pending" else "") + "\n"
+               if b["trial_until"] else
+               f"💰 Оплачено: {money(b['price'])}" + (" (был пробный)" if b["trial"] else "") + "\n")
+            + f"📅 Заявка: {fdate(b['created'])}\n"
             f"🚀 Запущен: {fdate(b['started']) if b['started'] else '—'}")
     if b["token"]:
         text += ("\n\n🔑 <b>Полный доступ:</b> вы админ в этом боте — откройте его и отправьте /admin. "
@@ -319,6 +486,9 @@ async def hb_view(target, bid, prefix=""):
         rows.append([B("⏸ Остановить", f"a:hbs:{bid}", style="danger"), B("🔄 Перезапустить", f"a:hbrs:{bid}")])
     elif b["status"] in ("stopped", "failed") and b["token"]:
         rows.append([B("▶️ Запустить", f"a:hbr:{bid}", style="success")])
+    if b["trial_until"] and b["token"]:
+        rows.append([B(f"🎁 +{trial_days() or 3} дн. пробного", f"a:hbtx:{bid}"),
+                     B("♾ Сделать бессрочным", f"a:hbtp:{bid}", style="success")])
     if b["username"]:
         rows.append([B(f"🔗 Открыть @{b['username']} (/admin)", url=f"https://t.me/{b['username']}", style="primary")])
     if os.path.exists(hosting.db_path(bid)):
@@ -526,6 +696,40 @@ async def cb_hb_run(call: CallbackQuery):
     db.set_hosted(bid, status="running")
     ok = await hosting.launch(bid)
     await hb_view(call, bid, "▶️ Бот запущен.\n\n" if ok else "⚠️ Бот не запустился — смотрите лог.\n\n")
+
+
+@admin_router.callback_query(F.data.startswith("a:hbtx:"))
+async def cb_hb_trial_extend(call: CallbackQuery, bot: Bot):
+    """Продлить пробный период (от текущего конца или от сейчас, если уже закончился) и включить бота."""
+    bid = int(call.data.split(":")[2])
+    b = db.hosted(bid)
+    if not b or not b["trial_until"]:
+        return await call.answer("Бот уже не пробный", show_alert=True)
+    await call.answer("Продлеваю…")
+    until = add_days(trial_days() or 3, b["trial_until"])
+    db.set_hosted(bid, trial_until=until, trial_warned=0)
+    note = f"🎁 Пробный продлён до {fmt_until(until)}.\n\n"
+    if b["status"] == "expired" and b["token"]:
+        db.set_hosted(bid, status="running")
+        if not await hosting.launch(bid):
+            note += "⚠️ Бот не запустился — смотрите лог.\n\n"
+    u = db.get_user(b["user_id"])
+    await safe_send(bot, b["user_id"], t("mb_trial_extended", u["lang"] if u else "ru",
+                                         username=html.escape(b["username"] or "?"), until=fmt_until(until)))
+    await hb_view(call, bid, note)
+
+
+@admin_router.callback_query(F.data.startswith("a:hbtp:"))
+async def cb_hb_trial_permanent(call: CallbackQuery, bot: Bot):
+    bid = int(call.data.split(":")[2])
+    b = db.hosted(bid)
+    if not b or not b["trial_until"]:
+        return await call.answer("Бот уже бессрочный", show_alert=True)
+    await call.answer("Готово")
+    running = await make_permanent(bot, b)
+    u = db.get_user(b["user_id"])
+    await safe_send(bot, b["user_id"], t("mb_bought", u["lang"] if u else "ru", username=html.escape(b["username"] or "?")))
+    await hb_view(call, bid, "♾ Бот бессрочный.\n\n" if running else "♾ Бот бессрочный, но не запустился — смотрите лог.\n\n")
 
 
 @admin_router.callback_query(F.data.startswith("a:hbl:"))

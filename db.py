@@ -199,7 +199,13 @@ def _migrate():
                             ("categories", "photo", "TEXT"),
                             ("categories", "media_type", "TEXT"),
                             ("users", "deposited", "REAL DEFAULT 0"),  # сколько реальных денег принёс (для статуса)
-                            ("users", "bonus_at", "TEXT"),            # когда забирал ежедневный бонус
+                            ("users", "bonus_at", "TEXT"),
+                            # «🤖 Создать своего бота»: пробный период
+                            ("hosted_bots", "trial", "INTEGER DEFAULT 0"),      # бот взят на пробу
+                            ("hosted_bots", "trial_until", "TEXT"),             # до когда пробный (NULL — бессрочный)
+                            ("hosted_bots", "trial_warned", "INTEGER DEFAULT 0"),  # напомнили за сутки до конца
+                            ("hosted_bots", "pay_status", "TEXT"),              # покупка пробного: wait_pay / pending
+                            ("hosted_bots", "pay_at", "TEXT"),            # когда забирал ежедневный бонус
                             ("products", "soldout", "INTEGER DEFAULT 0"),   # админ пометил «нет в наличии»
                             ("products", "no_stars", "INTEGER DEFAULT 0"),  # оплата звёздами для товара выключена
                             ("products", "min_qty", "INTEGER DEFAULT 0"),   # >0 — покупка по количеству, от N шт.
@@ -698,9 +704,12 @@ def user_hosted(uid):
 
 
 def hosted_wait_pay(uid):
-    """Последняя заявка на бота, ожидающая чек (за последние сутки)."""
-    return q1("""SELECT * FROM hosted_bots WHERE user_id=? AND status='wait_pay'
-                 AND created >= datetime('now','localtime','-1 day') ORDER BY id DESC LIMIT 1""", (uid,))
+    """Последняя заявка на бота, ожидающая чек (за последние сутки): новый бот или покупка пробного.
+    Поле ts — когда заявка создана (для покупки пробного — когда нажали «Купить»)."""
+    return q1("""SELECT *, CASE WHEN pay_status='wait_pay' THEN pay_at ELSE created END AS ts FROM hosted_bots
+                 WHERE user_id=? AND ((status='wait_pay' AND created >= datetime('now','localtime','-1 day'))
+                   OR (pay_status='wait_pay' AND pay_at >= datetime('now','localtime','-1 day')))
+                 ORDER BY ts DESC LIMIT 1""", (uid,))
 
 
 def hosted_wait_token(uid):
@@ -709,7 +718,25 @@ def hosted_wait_token(uid):
 
 def hosted_by_tg(tg_id):
     """Бот с этим Telegram-ID, который уже стоит на хосте (чтобы один токен не запускали дважды)."""
-    return q1("SELECT * FROM hosted_bots WHERE tg_id=? AND status IN ('running','stopped','failed')", (tg_id,))
+    return q1("SELECT * FROM hosted_bots WHERE tg_id=? AND status IN ('running','stopped','failed','expired')",
+              (tg_id,))
+
+
+def trial_used(uid=None, tg_id=None):
+    """Пробный период уже брали: этот человек или этот Telegram-бот (пробный — один раз)."""
+    if uid is not None and q1("SELECT 1 FROM hosted_bots WHERE user_id=? AND trial=1 AND status!='canceled'", (uid,)):
+        return True
+    return bool(tg_id is not None and q1("SELECT 1 FROM hosted_bots WHERE tg_id=? AND trial=1", (tg_id,)))
+
+
+def trials_to_expire():
+    return q("""SELECT * FROM hosted_bots WHERE trial_until IS NOT NULL AND trial_until <= ?
+                AND status IN ('running','stopped','failed','wait_token')""", (now(),))
+
+
+def trials_to_warn():
+    return q("""SELECT * FROM hosted_bots WHERE trial_until IS NOT NULL AND trial_warned=0 AND status='running'
+                AND trial_until <= datetime('now','localtime','+1 day') AND trial_until > ?""", (now(),))
 
 
 def hosted_running():
@@ -722,7 +749,8 @@ def hosted_list():
 
 
 def hosted_owner_ids():
-    return [r[0] for r in q("SELECT DISTINCT user_id FROM hosted_bots WHERE status IN ('running','stopped','failed')")]
+    return [r[0] for r in q("SELECT DISTINCT user_id FROM hosted_bots "
+                            "WHERE status IN ('running','stopped','failed','expired')")]
 
 
 # ---------- «🔐 Верификация Codex» ----------
@@ -819,8 +847,9 @@ def add_deposited(uid, amount):
 def latest_wait_kind(uid):
     """Что ждёт чек от покупателя: order / codex / hosted / topup (самая свежая заявка) или None.
     Нужен, чтобы чек, присланный без «Я оплатил», попал в нужный раздел."""
-    found = [(r["created"], kind) for kind, r in (("order", last_wait_pay(uid)), ("codex", codex_wait_pay(uid)),
-                                                   ("hosted", hosted_wait_pay(uid)), ("topup", topup_wait_pay(uid))) if r]
+    found = [(r["ts"] if kind == "hosted" else r["created"], kind)
+             for kind, r in (("order", last_wait_pay(uid)), ("codex", codex_wait_pay(uid)),
+                             ("hosted", hosted_wait_pay(uid)), ("topup", topup_wait_pay(uid))) if r]
     return max(found)[1] if found else None
 
 

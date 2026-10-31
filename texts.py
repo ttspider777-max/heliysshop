@@ -273,6 +273,78 @@ TEXTS = {
         "👑 You'll be the owner and admin of your bot. It runs on our server, no setup needed.\n"
         "<i>The service team keeps technical access to the bot for support and backups.</i>",
     ),
+    # ---------- пробный период ({days} — сколько дней, ⚙️ Настройки → 🎁 Пробный период) ----------
+    "mb_trial_offer": (
+        "\n\n🎁 <b>Можно попробовать бесплатно:</b> {days} дн. без оплаты. Потом бот выключится, "
+        "а купить его или нет — решаете вы. Товары и настройки сохранятся.",
+        "\n\n🎁 <b>Try it for free:</b> {days} days without paying. Then the bot turns off, "
+        "and it's up to you whether to buy it. Products and settings are kept.",
+    ),
+    "mb_trial_start": (
+        "🎁 <b>Пробный период — {days} дн. бесплатно</b>\nПришлите токен от @BotFather. Как его получить:\n\n"
+        "<blockquote>1. Откройте @BotFather и отправьте /newbot\n"
+        "2. Придумайте название — его увидят покупатели\n"
+        "3. Придумайте юзернейм латиницей, на конце <code>bot</code> (например <code>myshop_bot</code>)\n"
+        "4. BotFather пришлёт токен вида <code>123456789:AAH…</code> — скопируйте его целиком и отправьте сюда</blockquote>\n"
+        "Отсчёт {days} дн. начнётся, когда бот запустится.\n🔒 Никому, кроме этого бота, токен не отправляйте.",
+        "🎁 <b>Free trial — {days} days</b>\nSend the token from @BotFather. How to get it:\n\n"
+        "<blockquote>1. Open @BotFather and send /newbot\n"
+        "2. Choose a name — customers will see it\n"
+        "3. Choose a username in Latin letters ending with <code>bot</code> (e.g. <code>myshop_bot</code>)\n"
+        "4. BotFather will send a token like <code>123456789:AAH…</code> — copy all of it and send it here</blockquote>\n"
+        "The {days}-day countdown starts when the bot is running.\n🔒 Don't send the token to anyone except this bot.",
+    ),
+    "mb_trial_used": (
+        "ℹ️ Пробный период уже использован. Бота можно купить — нажмите «Я прочитал».",
+        "ℹ️ You've already used the free trial. You can buy a bot — tap «I've read it».",
+    ),
+    "mb_trial_used_bot": (
+        "❌ Для этого бота пробный период уже был. Создайте нового бота в @BotFather или купите бота.",
+        "❌ This bot has already had a free trial. Create a new bot in @BotFather or buy one.",
+    ),
+    "mb_trial_started": (
+        "\n\n🎁 Пробный период до <b>{until}</b>. Потом бот выключится — купить его можно в «🤖 Создать своего бота».",
+        "\n\n🎁 Free trial until <b>{until}</b>. Then the bot turns off — you can buy it in «🤖 Create your own bot».",
+    ),
+    "mb_trial_line": (" · 🎁 пробный до {until}", " · 🎁 trial until {until}"),
+    "mb_trial_soon": (
+        "⏳ <b>Пробный период бота @{username} заканчивается {until}</b>\n\n"
+        "После этого бот выключится. Чтобы он работал дальше, купите его — <b>{price}</b>. "
+        "Товары, покупатели и настройки сохранятся.",
+        "⏳ <b>The free trial of @{username} ends {until}</b>\n\n"
+        "After that the bot turns off. To keep it running, buy it — <b>{price}</b>. "
+        "Products, customers and settings are kept.",
+    ),
+    "mb_trial_over": (
+        "⌛ <b>Пробный период бота @{username} закончился</b>, бот выключен.\n\n"
+        "Понравилось? Купите бота — <b>{price}</b>, и он сразу включится снова со всеми товарами, "
+        "покупателями и настройками. Если не нужен — ничего делать не надо.",
+        "⌛ <b>The free trial of @{username} is over</b>, the bot is turned off.\n\n"
+        "Liked it? Buy the bot — <b>{price}</b>, and it will start again right away with all products, "
+        "customers and settings. If you don't need it, do nothing.",
+    ),
+    "mb_buy_pay": (
+        _card("💳 Покупка бота", "🤖 @{username}\n💰 Сумма: <b>{price}</b>") +
+        "\n📲 <b>Реквизиты:</b>\n{details}\n\nПереведите <b>точную сумму</b> и нажмите «Я оплатил».",
+        _card("💳 Buying the bot", "🤖 @{username}\n💰 Amount: <b>{price}</b>") +
+        "\n📲 <b>Details:</b>\n{details}\n\nTransfer the <b>exact amount</b> and tap «I have paid».",
+    ),
+    "mb_buy_receipt_sent": (
+        "✅ Чек отправлен администратору. После проверки бот станет бессрочным.",
+        "✅ Receipt sent to the administrator. After review the bot will become permanent.",
+    ),
+    "mb_bought": (
+        _card("🎉 Бот куплен!", "🤖 @{username}") + "\nТеперь он работает без ограничений по времени.",
+        _card("🎉 Bot purchased!", "🤖 @{username}") + "\nIt now runs with no time limit.",
+    ),
+    "mb_buy_rejected": (
+        "❌ Оплата за бота @{username} не подтверждена. Если это ошибка — напишите в поддержку.",
+        "❌ Payment for @{username} was not confirmed. If this is a mistake, contact support.",
+    ),
+    "mb_trial_extended": (
+        "🎁 Пробный период бота @{username} продлён до <b>{until}</b>.",
+        "🎁 The free trial of @{username} has been extended until <b>{until}</b>.",
+    ),
     "mb_bots_head": ("\n\n🤖 <b>Ваши боты:</b>", "\n\n🤖 <b>Your bots:</b>"),
     "mb_bot_line": ("\n• {name} — {status}", "\n• {name} — {status}"),
     "mb_send_token": ("\n\n👉 Пришлите токен из @BotFather сообщением в этот чат.",
@@ -550,6 +622,7 @@ BOT_STATUS = {
     "stopped": ("⏸ остановлен", "⏸ stopped"),
     "failed": ("⚠️ не работает", "⚠️ not working"),
     "rejected": ("❌ оплата отклонена", "❌ payment rejected"),
+    "expired": ("⌛ пробный период закончился", "⌛ free trial is over"),
 }
 
 STATUS = {
@@ -612,6 +685,8 @@ BUTTONS = {
     "mkbot": ("🤖 Создать своего бота", "🤖 Create your own bot", "primary"),
     "mb_read": ("✅ Я прочитал", "✅ I've read it", "success"),
     "mb_token": ("🔑 Новый токен", "🔑 New token", ""),
+    "mb_trial": ("🎁 Попробовать бесплатно", "🎁 Try for free", "primary"),
+    "mb_buy": ("💳 Купить бота", "💳 Buy the bot", "success"),
     "pay_stars": ("⭐ Звёздами", "⭐ Stars", ""),
     "pay_cryptobot": ("💎 CryptoBot", "💎 CryptoBot", ""),
     "pay_xrocket": ("🚀 xRocket", "🚀 xRocket", ""),

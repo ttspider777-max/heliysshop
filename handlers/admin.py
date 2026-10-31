@@ -1607,6 +1607,8 @@ SETTINGS["review_user"] = ("👤 Юзернейм в отзыве", config.REVIE
                            "(<code>-</code> — не указывать):")
 if not config.CHILD:
     SETTINGS["bot_price"] = ("🤖 Цена создания бота", config.BOT_PRICE, "Отправьте цену создания бота в ₽ (например 300):")
+    SETTINGS["trial_days"] = ("🎁 Пробный период бота, дней", 3,
+                              "Сколько дней бот клиента работает бесплатно? Отправьте число (0 — без пробного периода):")
 
 
 @router.callback_query(F.data == "a:settings")
