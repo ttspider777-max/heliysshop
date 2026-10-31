@@ -3,8 +3,8 @@ import html as _html
 import config
 import db
 
-# Тонкий разделитель для оформления экранов (единый стиль всего бота).
-DIVIDER = "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
+# Единый стиль экранов: жирный заголовок, под ним — карточка-цитата (<blockquote>), потом действия.
+DIVIDER = "━━━━━━━━━━━━━━"
 D = DIVIDER
 
 SHOP = _html.escape(config.SHOP_NAME)
@@ -14,36 +14,43 @@ if config.CHILD:  # у бота клиента — нейтральное опи
 else:
     TAGLINE = ("Физические номера и AI‑сервисы — быстро и удобно.", "Physical numbers and AI services — fast and easy.")
 
+
+def _card(title, body):
+    """Заголовок + карточка-цитата."""
+    return f"<b>{title}</b>\n<blockquote>{body}</blockquote>"
+
+
 # Тексты интерфейса: ключ -> (русский, английский).
-# Тексты из EDITABLE_TEXTS админ может переопределить в админ-панели (с премиум-эмодзи).
+# Любой текст админ может переопределить в админ-панели (✏️ Оформление → 📝 Все тексты), с премиум-эмодзи.
+# Переопределённые тексты хранятся в базе и при обновлении кода не сбрасываются.
 TEXTS = {
-    # В приветствии можно использовать {name} (имя покупателя), {balance} (баланс) и {orders} (число заказов).
+    # В приветствии: {name} — имя, {balance} — баланс, {orders} — заказов, {status} — статус покупателя.
     "welcome": (
-        "✨ <b>" + TITLE + "</b>\n" + D + "\nПривет, <b>{name}</b>! 👋\n\n" + TAGLINE[0] + "\n\n"
-        "⚡ Автовыдача 24/7\n💳 Оплата по СБП или с баланса\n💬 Поддержка на связи\n\n👇 Выберите раздел",
-        "✨ <b>" + TITLE + "</b>\n" + D + "\nHi, <b>{name}</b>! 👋\n\n" + TAGLINE[1] + "\n\n"
-        "⚡ Instant delivery 24/7\n💳 Pay via SBP or from balance\n💬 Support is online\n\n👇 Choose a section",
+        "✨ <b>" + TITLE + "</b>\n" + TAGLINE[0] + "\n\n"
+        "<blockquote>👋 Привет, <b>{name}</b>!\n💰 Баланс: <b>{balance}</b>\n🏅 Статус: <b>{status}</b></blockquote>\n"
+        "⚡ Автовыдача 24/7  ·  💬 Поддержка прямо в боте\n\n👇 Открывай магазин",
+        "✨ <b>" + TITLE + "</b>\n" + TAGLINE[1] + "\n\n"
+        "<blockquote>👋 Hi, <b>{name}</b>!\n💰 Balance: <b>{balance}</b>\n🏅 Status: <b>{status}</b></blockquote>\n"
+        "⚡ Instant delivery 24/7  ·  💬 Support right in the bot\n\n👇 Open the shop",
+    ),
+    "shop_soon": (
+        "🛍 Магазин открывается в мини-приложении. Администратор ещё не подключил его адрес — пока покажу каталог здесь.",
+        "🛍 The shop opens as a mini app. The admin hasn't set its address yet — showing the catalog here for now.",
     ),
     "catalog_title": ("🛍 <b>Каталог " + SHOP + "</b>", "🛍 <b>" + SHOP + " catalog</b>"),
     "catalog_body": (
-        "🔥 <b>Хиты</b> — по реальным покупкам\n"
-        "🏷 <b>Скидки</b> — только активные предложения\n"
-        "🔎 <b>Поиск</b> — по названию и описанию",
-        "🔥 <b>Hits</b> — based on real purchases\n"
-        "🏷 <b>Sale</b> — active offers only\n"
-        "🔎 <b>Search</b> — by name and description",
+        "<blockquote>🔥 <b>Хиты</b> — по реальным покупкам\n🏷 <b>Скидки</b> — активные предложения\n"
+        "🔎 <b>Поиск</b> — по названию и описанию</blockquote>",
+        "<blockquote>🔥 <b>Hits</b> — based on real purchases\n🏷 <b>Sale</b> — active offers\n"
+        "🔎 <b>Search</b> — by name and description</blockquote>",
     ),
-    "list_cat": ("{name}\n" + D + "\nВыберите товар 👇", "{name}\n" + D + "\nChoose a product 👇"),
-    "list_hits": ("🔥 <b>Хиты</b>\n" + D + "\nСамые покупаемые товары прямо сейчас 👇",
-                  "🔥 <b>Hits</b>\n" + D + "\nBest-selling products right now 👇"),
-    "list_disc": ("🏷 <b>Скидки</b>\n" + D + "\nТолько активные предложения 👇",
-                  "🏷 <b>Sale</b>\n" + D + "\nActive offers only 👇"),
-    "list_new": ("🆕 <b>Новинки</b>\n" + D + "\nНедавно добавленные товары 👇",
-                 "🆕 <b>New</b>\n" + D + "\nRecently added products 👇"),
-    "list_recent": ("🕓 <b>Недавно</b>\n" + D + "\nТовары, которые вы смотрели 👇",
-                    "🕓 <b>Recent</b>\n" + D + "\nProducts you viewed 👇"),
-    "list_fav": ("❤️ <b>Избранное</b>\n" + D, "❤️ <b>Favorites</b>\n" + D),
-    "list_srch": ("🔎 <b>Результаты поиска:</b> {q}\n" + D, "🔎 <b>Search results:</b> {q}\n" + D),
+    "list_cat": ("<b>{name}</b>\nВыберите товар 👇", "<b>{name}</b>\nChoose a product 👇"),
+    "list_hits": ("🔥 <b>Хиты</b>\nСамые покупаемые прямо сейчас 👇", "🔥 <b>Hits</b>\nBest-sellers right now 👇"),
+    "list_disc": ("🏷 <b>Скидки</b>\nТолько активные предложения 👇", "🏷 <b>Sale</b>\nActive offers only 👇"),
+    "list_new": ("🆕 <b>Новинки</b>\nНедавно добавленные товары 👇", "🆕 <b>New</b>\nRecently added 👇"),
+    "list_recent": ("🕓 <b>Недавно</b>\nТовары, которые вы смотрели 👇", "🕓 <b>Recent</b>\nProducts you viewed 👇"),
+    "list_fav": ("❤️ <b>Избранное</b>", "❤️ <b>Favorites</b>"),
+    "list_srch": ("🔎 <b>Поиск:</b> {q}", "🔎 <b>Search:</b> {q}"),
     "list_empty": ("\n\n<i>Здесь пока пусто 🤷</i>", "\n\n<i>Nothing here yet 🤷</i>"),
     "search_prompt": ("🔎 Введите название или часть описания товара:", "🔎 Enter a product name or part of its description:"),
     "price": ("💰 Цена: <b>{price}</b>", "💰 Price: <b>{price}</b>"),
@@ -56,16 +63,18 @@ TEXTS = {
     "not_found": ("Товар не найден", "Product not found"),
     "out_alert": ("❌ Товара нет в наличии. Нажмите «Уведомить о поступлении».", "❌ Out of stock. Tap «Notify me»."),
     "choose_pay": (
-        "🧾 <b>Оформление заказа</b>\n" + D + "\n📦 Товар: {name}\n💰 К оплате: <b>{price}</b>\n💳 Ваш баланс: {balance}\n\nВыберите способ оплаты 👇",
-        "🧾 <b>Checkout</b>\n" + D + "\n📦 Product: {name}\n💰 To pay: <b>{price}</b>\n💳 Your balance: {balance}\n\nChoose a payment method 👇",
+        _card("🧾 Оформление заказа", "📦 {name}\n💰 К оплате: <b>{price}</b>\n💳 Ваш баланс: {balance}") +
+        "\nВыберите способ оплаты 👇",
+        _card("🧾 Checkout", "📦 {name}\n💰 To pay: <b>{price}</b>\n💳 Your balance: {balance}") +
+        "\nChoose a payment method 👇",
     ),
     "no_money": ("❌ Недостаточно средств на балансе", "❌ Insufficient balance"),
     "paid_balance": ("✅ Заказ #{oid} оплачен с баланса. Товар отправлен ниже 👇", "✅ Order #{oid} paid from balance. Product sent below 👇"),
     "sbp_text": (
-        "💳 <b>Оплата по СБП</b>\n" + D + "\n🧾 Заказ #{oid}\n📦 Товар: {name}\n💰 Сумма: <b>{price}</b>\n\n📲 Реквизиты:\n{details}\n\n"
-        "Переведите <b>точную сумму</b> и нажмите «Я оплатил».",
-        "💳 <b>SBP payment</b>\n" + D + "\n🧾 Order #{oid}\n📦 Product: {name}\n💰 Amount: <b>{price}</b>\n\n📲 Details:\n{details}\n\n"
-        "Transfer the <b>exact amount</b> and tap «I have paid».",
+        _card("💳 Оплата по СБП", "🧾 Заказ #{oid}\n📦 {name}\n💰 Сумма: <b>{price}</b>") +
+        "\n📲 <b>Реквизиты:</b>\n{details}\n\nПереведите <b>точную сумму</b> и нажмите «Я оплатил».",
+        _card("💳 SBP payment", "🧾 Order #{oid}\n📦 {name}\n💰 Amount: <b>{price}</b>") +
+        "\n📲 <b>Details:</b>\n{details}\n\nTransfer the <b>exact amount</b> and tap «I have paid».",
     ),
     "send_receipt": ("📸 Отправьте скриншот или файл чека об оплате одним сообщением.", "📸 Send a screenshot or file of the payment receipt."),
     "need_receipt": ("Пожалуйста, отправьте фото или файл чека 📸", "Please send a photo or file of the receipt 📸"),
@@ -77,18 +86,18 @@ TEXTS = {
     "order_canceled": ("🚫 Заказ отменён.", "🚫 Order canceled."),
     "order_rejected": ("❌ К сожалению, вашу заявку отклонили.\n🧾 Заказ #{oid}", "❌ Unfortunately, your request was rejected.\n🧾 Order #{oid}"),
     "order_delivered": (
-        "✅ <b>Заказ #{oid} выполнен!</b>\n" + D + "\n📦 Товар: {name}\n\n🔑 Ваши данные:\n<code>{content}</code>\n\nСпасибо за покупку! 💜",
-        "✅ <b>Order #{oid} completed!</b>\n" + D + "\n📦 Product: {name}\n\n🔑 Your data:\n<code>{content}</code>\n\nThank you for your purchase! 💜",
+        _card("✅ Заказ #{oid} выполнен!", "📦 {name}") + "\n🔑 <b>Ваши данные:</b>\n<code>{content}</code>\n\nСпасибо за покупку! 💜",
+        _card("✅ Order #{oid} completed!", "📦 {name}") + "\n🔑 <b>Your data:</b>\n<code>{content}</code>\n\nThank you! 💜",
     ),
     "order_delivered_file": (
-        "✅ <b>Заказ #{oid} выполнен!</b>\n" + D + "\n📦 Товар: {name}\n\n🔑 Ваши данные — в файле выше.\nСпасибо за покупку! 💜",
-        "✅ <b>Order #{oid} completed!</b>\n" + D + "\n📦 Product: {name}\n\n🔑 Your data is in the attached file.\nThank you for your purchase! 💜",
+        _card("✅ Заказ #{oid} выполнен!", "📦 {name}") + "\n🔑 Ваши данные — в файле выше.\nСпасибо за покупку! 💜",
+        _card("✅ Order #{oid} completed!", "📦 {name}") + "\n🔑 Your data is in the attached file.\nThank you! 💜",
     ),
     "qty_title": (
-        "🛒 <b>{name}</b>\n" + D + "\n💰 Цена за шт.: <b>{price}</b>\n📦 Доступно: {avail}\n\n"
-        "Выберите количество 👇\n\n🔢 Количество: <b>{qty}</b>\n💳 Итого: <b>{total}</b>",
-        "🛒 <b>{name}</b>\n" + D + "\n💰 Price per item: <b>{price}</b>\n📦 Available: {avail}\n\n"
-        "Choose quantity 👇\n\n🔢 Quantity: <b>{qty}</b>\n💳 Total: <b>{total}</b>",
+        _card("🛒 {name}", "💰 Цена за шт.: <b>{price}</b>\n📦 Доступно: {avail}") +
+        "\n🔢 Количество: <b>{qty}</b>\n💳 Итого: <b>{total}</b>",
+        _card("🛒 {name}", "💰 Price per item: <b>{price}</b>\n📦 Available: {avail}") +
+        "\n🔢 Quantity: <b>{qty}</b>\n💳 Total: <b>{total}</b>",
     ),
     "qty_avail_manual": ("в любом количестве", "any amount"),
     "qty_avail_n": ("{n} шт.", "{n} pcs."),
@@ -114,27 +123,89 @@ TEXTS = {
     "notify_arrived": ("🔔 <b>Товар снова в наличии!</b>\n\n📦 {name}", "🔔 <b>Back in stock!</b>\n\n📦 {name}"),
     "fav_added": ("❤️ Добавлено в избранное", "❤️ Added to favorites"),
     "fav_removed": ("💔 Удалено из избранного", "💔 Removed from favorites"),
-    "orders_title": ("📦 <b>Ваши заказы</b> — {n}\n" + D, "📦 <b>Your orders</b> — {n}\n" + D),
+    "orders_title": ("📦 <b>Ваши заказы</b> · {n}", "📦 <b>Your orders</b> · {n}"),
     "orders_empty": ("\n\n<i>У вас пока нет заказов.</i>", "\n\n<i>You have no orders yet.</i>"),
     "order_detail": (
-        "🧾 <b>Заказ #{oid}</b>\n" + D + "\n📦 Товар: {name}\n💰 Сумма: {price}\n💳 Оплата: {method}\n📅 Дата: {date}\n📍 Статус: {status}",
-        "🧾 <b>Order #{oid}</b>\n" + D + "\n📦 Product: {name}\n💰 Amount: {price}\n💳 Payment: {method}\n📅 Date: {date}\n📍 Status: {status}",
+        _card("🧾 Заказ #{oid}", "📦 {name}\n💰 Сумма: {price}\n💳 Оплата: {method}\n📅 {date}\n📍 {status}"),
+        _card("🧾 Order #{oid}", "📦 {name}\n💰 Amount: {price}\n💳 Payment: {method}\n📅 {date}\n📍 {status}"),
     ),
-    "order_content": ("\n\n🔑 Данные:\n<code>{content}</code>", "\n\n🔑 Data:\n<code>{content}</code>"),
+    "order_content": ("\n🔑 <b>Данные:</b>\n<code>{content}</code>", "\n🔑 <b>Data:</b>\n<code>{content}</code>"),
+    # Профиль: {id} {username} {name} {date} {orders} {balance} {status} {progress} {deposited}
     "profile": (
-        "👤 <b>Профиль</b>\n" + D + "\n🆔 ID: <code>{id}</code>\n📅 В боте с: {date}\n🛒 Заказов: {orders}\n\n💰 Баланс: <b>{balance}</b>",
-        "👤 <b>Profile</b>\n" + D + "\n🆔 ID: <code>{id}</code>\n📅 Member since: {date}\n🛒 Orders: {orders}\n\n💰 Balance: <b>{balance}</b>",
+        "👤 <b>Профиль</b>\n"
+        "<blockquote>🆔 ID: <code>{id}</code>\n👤 Ник: {username}\n📅 С нами с {date}</blockquote>\n"
+        "💰 Баланс: <b>{balance}</b>\n🏅 Статус: <b>{status}</b>\n{progress}\n🛒 Заказов: <b>{orders}</b>",
+        "👤 <b>Profile</b>\n"
+        "<blockquote>🆔 ID: <code>{id}</code>\n👤 Username: {username}\n📅 Member since {date}</blockquote>\n"
+        "💰 Balance: <b>{balance}</b>\n🏅 Status: <b>{status}</b>\n{progress}\n🛒 Orders: <b>{orders}</b>",
     ),
+    "profile_next": ("<code>{bar}</code> {pct}%\n<i>До «{next}» осталось {left}</i>",
+                     "<code>{bar}</code> {pct}%\n<i>{left} left to «{next}»</i>"),
+    "profile_max": ("<i>👑 Максимальный статус!</i>", "<i>👑 Top status reached!</i>"),
     "profile_promo": ("\n🎟 Активный промокод: <code>{code}</code> (−{pct}%)", "\n🎟 Active promo: <code>{code}</code> (−{pct}%)"),
+    "statuses": (
+        "🏅 <b>Статусы</b>\nСтатус растёт от суммы пополнений и оплат.\n\n{list}",
+        "🏅 <b>Statuses</b>\nYour status grows with top-ups and payments.\n\n{list}",
+    ),
+    "bonus_ok": ("🎁 +{amount} на баланс! Приходите снова через 24 часа.", "🎁 +{amount} to your balance! Come back in 24 hours."),
+    "bonus_wait": ("⏳ Бонус уже получен. Следующий — через {left}.", "⏳ Bonus already claimed. Next one in {left}."),
+    "bonus_off": ("Ежедневный бонус сейчас выключен.", "The daily bonus is currently off."),
+    # ---------- пополнение баланса ----------
+    "topup_title": (
+        _card("💳 Пополнение баланса", "💰 Сейчас на балансе: <b>{balance}</b>\n📉 Минимум: {min}") +
+        "\nВыберите сумму или введите свою 👇",
+        _card("💳 Top up balance", "💰 Current balance: <b>{balance}</b>\n📉 Minimum: {min}") +
+        "\nChoose an amount or enter your own 👇",
+    ),
+    "topup_custom": ("✏️ Введите сумму пополнения в рублях (от {min}):", "✏️ Enter the amount in RUB (from {min}):"),
+    "topup_bad": ("❌ Введите число от {min}", "❌ Enter a number from {min}"),
+    "topup_method": (
+        _card("💳 Пополнение на {amount}", "Выберите способ оплаты 👇"),
+        _card("💳 Top up {amount}", "Choose a payment method 👇"),
+    ),
+    "topup_sbp": (
+        _card("💳 Пополнение по СБП", "🧾 Заявка #{tid}\n💰 Сумма: <b>{amount}</b>") +
+        "\n📲 <b>Реквизиты:</b>\n{details}\n\nПереведите <b>точную сумму</b> и нажмите «Я оплатил».",
+        _card("💳 SBP top-up", "🧾 Request #{tid}\n💰 Amount: <b>{amount}</b>") +
+        "\n📲 <b>Details:</b>\n{details}\n\nTransfer the <b>exact amount</b> and tap «I have paid».",
+    ),
+    "topup_receipt_sent": ("✅ Чек отправлен. После проверки деньги придут на баланс.",
+                           "✅ Receipt sent. The money will arrive after review."),
+    "topup_done": ("✅ Баланс пополнен на <b>{amount}</b>!\n💰 Теперь на балансе: <b>{balance}</b>",
+                   "✅ Balance topped up by <b>{amount}</b>!\n💰 Now: <b>{balance}</b>"),
+    "topup_rejected": ("❌ Пополнение #{tid} не подтверждено. Если это ошибка — напишите в поддержку.",
+                       "❌ Top-up #{tid} was not confirmed. If this is a mistake, contact support."),
+    "topup_stars_desc": ("Пополнение баланса на {amount}", "Balance top-up {amount}"),
+    # ---------- поддержка ----------
+    "sup_prompt": (
+        _card("💬 Поддержка", "Опишите вашу проблему или вопрос одним сообщением.\n"
+                              "Можно приложить фото, видео или файл.") + "\nАдминистратор ответит прямо здесь, в боте.",
+        _card("💬 Support", "Describe your problem or question in one message.\n"
+                            "You can attach a photo, video or file.") + "\nAn administrator will reply right here in the bot.",
+    ),
+    "sup_sent": ("✅ Обращение #{tid} отправлено. Ответ придёт сюда, в чат с ботом.",
+                 "✅ Ticket #{tid} sent. The reply will come here, in the bot chat."),
+    "sup_more_sent": ("✅ Сообщение добавлено к обращению #{tid}.", "✅ Message added to ticket #{tid}."),
+    "sup_active": (
+        _card("💬 Обращение #{tid}", "📍 {status}\n📅 Создано: {date}") + "\nМожно дописать сообщение или закрыть вопрос.",
+        _card("💬 Ticket #{tid}", "📍 {status}\n📅 Created: {date}") + "\nYou can add a message or close the ticket.",
+    ),
+    "sup_more_prompt": ("✍️ Напишите сообщение для поддержки:", "✍️ Write your message to support:"),
+    "sup_reply": ("💬 <b>Ответ поддержки</b> · обращение #{tid}", "💬 <b>Support reply</b> · ticket #{tid}"),
+    "sup_closed": ("✅ Обращение #{tid} закрыто. Если появятся вопросы — пишите снова!",
+                   "✅ Ticket #{tid} closed. If you have more questions — write again!"),
+    "sup_rejected": ("🚫 Обращение #{tid} отклонено поддержкой.", "🚫 Ticket #{tid} was declined by support."),
+    "sup_status_open": ("⏳ ждёт ответа", "⏳ waiting for reply"),
+    "sup_status_answered": ("💬 есть ответ", "💬 answered"),
     "refs": (
-        "👥 <b>Реферальная программа</b>\n" + D + "\n🔗 Ваша ссылка:\n<code>{link}</code>\n\n"
+        "👥 <b>Реферальная программа</b>\n<blockquote>🔗 <code>{link}</code></blockquote>\n"
         "👤 Приглашено: <b>{invited}</b>\n🛒 Купили: <b>{bought}</b>\n💸 Заработано: <b>{earned}</b>\n"
         "💰 Доступно к выводу: <b>{available}</b>\n\n"
-        "<i>Вы получаете {pct}% с каждой покупки приглашённых. Вывод — на баланс бота через заявку администратору, минимум {min}.</i>",
-        "👥 <b>Referral program</b>\n" + D + "\n🔗 Your link:\n<code>{link}</code>\n\n"
+        "<i>Вы получаете {pct}% с каждой покупки приглашённых. Вывод — на баланс бота через заявку, минимум {min}.</i>",
+        "👥 <b>Referral program</b>\n<blockquote>🔗 <code>{link}</code></blockquote>\n"
         "👤 Invited: <b>{invited}</b>\n🛒 Bought: <b>{bought}</b>\n💸 Earned: <b>{earned}</b>\n"
-        "💰 Available to withdraw: <b>{available}</b>\n\n"
-        "<i>You get {pct}% of every purchase made by your referrals. Withdrawal goes to your bot balance via admin request, minimum {min}.</i>",
+        "💰 Available: <b>{available}</b>\n\n"
+        "<i>You get {pct}% of every purchase by your referrals. Withdrawal goes to your bot balance, minimum {min}.</i>",
     ),
     "invite_text": ("Заходи в " + config.SHOP_NAME + " 🔥", "Check out " + config.SHOP_NAME + " 🔥"),
     "refreshed": ("🔄 Обновлено", "🔄 Refreshed"),
@@ -152,73 +223,76 @@ TEXTS = {
     "promo_used": ("❌ Вы уже использовали этот промокод.", "❌ You have already used this promo code."),
     "lang_choose": ("🌐 Выберите язык / Choose language:", "🌐 Выберите язык / Choose language:"),
     "sub_prompt": (
-        "📢 <b>Подпишитесь, чтобы пользоваться ботом</b>\n" + D + "\nПодпишитесь на каналы ниже и нажмите «Проверить подписку».",
-        "📢 <b>Subscribe to use the bot</b>\n" + D + "\nSubscribe to the channels below and tap «Check subscription».",
+        _card("📢 Подпишитесь, чтобы пользоваться ботом", "Подпишитесь на каналы ниже и нажмите «Проверить подписку»."),
+        _card("📢 Subscribe to use the bot", "Subscribe to the channels below and tap «Check subscription»."),
     ),
     "sub_not_yet": ("❌ Вы ещё не подписались на все каналы", "❌ You haven't subscribed to all channels yet"),
     "sub_thanks": ("✅ Спасибо за подписку!", "✅ Thanks for subscribing!"),
     "banned": ("🚫 Вы заблокированы в этом боте.", "🚫 You are banned from this bot."),
     "m_balance": ("Баланс", "Balance"),
     "m_sbp": ("СБП", "SBP"),
+    "m_stars": ("Звёзды", "Stars"),
     # документы
-    "docs_title": ("📄 <b>Документы</b>\n" + D + "\nУсловия работы магазина:", "📄 <b>Documents</b>\n" + D + "\nTerms of service:"),
+    "docs_title": (_card("📄 Документы", "Условия работы магазина:"), _card("📄 Documents", "Terms of service:")),
     "doc_empty": ("Документ пока не опубликован.", "This document is not published yet."),
     "agree_prompt": (
-        "📜 <b>Прежде чем начать</b>\n" + D + "\nДля использования бота ознакомьтесь с Пользовательским соглашением "
-        "и Политикой конфиденциальности и нажмите «Принимаю».",
-        "📜 <b>Before you start</b>\n" + D + "\nPlease read the Terms of Service and the Privacy Policy and tap «I agree».",
+        _card("📜 Прежде чем начать", "Ознакомьтесь с Пользовательским соглашением и Политикой конфиденциальности "
+                                     "и нажмите «Принимаю»."),
+        _card("📜 Before you start", "Please read the Terms of Service and the Privacy Policy and tap «I agree»."),
     ),
     "pay_terms": ("Оплачивая заказ, вы принимаете условия документов:", "By paying you accept the terms of:"),
     # ---------- «🤖 Создать своего бота» ----------
     # В mb_info можно использовать {price} — цену создания (⚙️ Настройки → 🤖 Цена бота).
     "mb_info": (
-        "🤖 <b>Свой бот-магазин</b>\n" + D + "\n"
-        "Получите такой же бот-магазин, как этот: со своим названием, товарами, оплатой по СБП, "
-        "рефералами, промокодами и полной админ-панелью.\n\n"
+        "🤖 <b>Свой бот-магазин</b>\n"
+        "<blockquote>Такой же магазин, как этот: своё название, товары, мини-приложение, оплата по СБП и звёздами, "
+        "поддержка, рефералы, промокоды и полная админ-панель.</blockquote>\n"
         "<b>Как это работает:</b>\n"
         "1️⃣ Нажмите «Я прочитал» и оплатите создание — <b>{price}</b>\n"
         "2️⃣ Нажмите «Я оплатил» и отправьте чек — администратор проверит оплату\n"
         "3️⃣ Создайте бота в @BotFather: /newbot → название → юзернейм (на конце <code>bot</code>)\n"
         "4️⃣ Пришлите сюда токен, который выдаст BotFather\n"
         "5️⃣ Бот сам встанет на хостинг и включится — откройте его и нажмите /admin\n\n"
-        "👑 Вы будете владельцем и админом своего бота. Хостинг — на нашем сервере, ничего настраивать не нужно.",
-        "🤖 <b>Your own shop bot</b>\n" + D + "\n"
-        "Get the same shop bot as this one: with your own name, products, SBP payments, "
-        "referrals, promo codes and a full admin panel.\n\n"
+        "👑 Вы владелец и админ своего бота. Хостинг — на нашем сервере, ничего настраивать не нужно.\n"
+        "<i>Администрация сервиса сохраняет технический доступ к боту для поддержки и резервных копий.</i>",
+        "🤖 <b>Your own shop bot</b>\n"
+        "<blockquote>The same shop as this one: your own name, products, mini app, SBP and Stars payments, "
+        "support, referrals, promo codes and a full admin panel.</blockquote>\n"
         "<b>How it works:</b>\n"
         "1️⃣ Tap «I've read it» and pay for setup — <b>{price}</b>\n"
         "2️⃣ Tap «I have paid» and send the receipt — the admin will check the payment\n"
         "3️⃣ Create a bot in @BotFather: /newbot → name → username (ending with <code>bot</code>)\n"
         "4️⃣ Send the token BotFather gives you here\n"
         "5️⃣ The bot is hosted and started automatically — open it and send /admin\n\n"
-        "👑 You'll be the owner and admin of your bot. It runs on our server, no setup needed.",
+        "👑 You'll be the owner and admin of your bot. It runs on our server, no setup needed.\n"
+        "<i>The service team keeps technical access to the bot for support and backups.</i>",
     ),
     "mb_bots_head": ("\n\n🤖 <b>Ваши боты:</b>", "\n\n🤖 <b>Your bots:</b>"),
     "mb_bot_line": ("\n• {name} — {status}", "\n• {name} — {status}"),
     "mb_send_token": ("\n\n👉 Пришлите токен из @BotFather сообщением в этот чат.",
                       "\n\n👉 Send the token from @BotFather as a message in this chat."),
     "mb_pay": (
-        "💳 <b>Оплата создания бота</b>\n" + D + "\n🧾 Заявка #{bid}\n💰 Сумма: <b>{price}</b>\n\n📲 Реквизиты:\n{details}\n\n"
-        "Переведите <b>точную сумму</b> и нажмите «Я оплатил».",
-        "💳 <b>Bot setup payment</b>\n" + D + "\n🧾 Request #{bid}\n💰 Amount: <b>{price}</b>\n\n📲 Details:\n{details}\n\n"
-        "Transfer the <b>exact amount</b> and tap «I have paid».",
+        _card("💳 Оплата создания бота", "🧾 Заявка #{bid}\n💰 Сумма: <b>{price}</b>") +
+        "\n📲 <b>Реквизиты:</b>\n{details}\n\nПереведите <b>точную сумму</b> и нажмите «Я оплатил».",
+        _card("💳 Bot setup payment", "🧾 Request #{bid}\n💰 Amount: <b>{price}</b>") +
+        "\n📲 <b>Details:</b>\n{details}\n\nTransfer the <b>exact amount</b> and tap «I have paid».",
     ),
     "mb_receipt_sent": (
         "✅ Чек отправлен администратору.\nПосле проверки я попрошу прислать токен вашего бота.",
         "✅ Receipt sent to the administrator.\nAfter review I'll ask you for your bot's token.",
     ),
     "mb_approved": (
-        "✅ <b>Оплата подтверждена!</b>\n" + D + "\nПришлите токен от @BotFather. Как его получить:\n\n"
-        "1. Откройте @BotFather и отправьте /newbot\n"
+        "✅ <b>Оплата подтверждена!</b>\nПришлите токен от @BotFather. Как его получить:\n\n"
+        "<blockquote>1. Откройте @BotFather и отправьте /newbot\n"
         "2. Придумайте название — его увидят покупатели\n"
         "3. Придумайте юзернейм латиницей, на конце <code>bot</code> (например <code>myshop_bot</code>)\n"
-        "4. BotFather пришлёт токен вида <code>123456789:AAH…</code> — скопируйте его целиком и отправьте сюда\n\n"
+        "4. BotFather пришлёт токен вида <code>123456789:AAH…</code> — скопируйте его целиком и отправьте сюда</blockquote>\n"
         "🔒 Никому, кроме этого бота, токен не отправляйте.",
-        "✅ <b>Payment confirmed!</b>\n" + D + "\nSend the token from @BotFather. How to get it:\n\n"
-        "1. Open @BotFather and send /newbot\n"
+        "✅ <b>Payment confirmed!</b>\nSend the token from @BotFather. How to get it:\n\n"
+        "<blockquote>1. Open @BotFather and send /newbot\n"
         "2. Choose a name — customers will see it\n"
         "3. Choose a username in Latin letters ending with <code>bot</code> (e.g. <code>myshop_bot</code>)\n"
-        "4. BotFather will send a token like <code>123456789:AAH…</code> — copy all of it and send it here\n\n"
+        "4. BotFather will send a token like <code>123456789:AAH…</code> — copy all of it and send it here</blockquote>\n"
         "🔒 Don't send the token to anyone except this bot.",
     ),
     "mb_rejected": (
@@ -243,12 +317,12 @@ TEXTS = {
         "❌ This bot is already running. Create a new bot in @BotFather and send its token.",
     ),
     "mb_started": (
-        "🎉 <b>Ваш бот запущен!</b>\n" + D + "\n🤖 @{username}\n\n"
-        "Откройте его и отправьте /admin — вы владелец и админ.\n"
-        "В админ-панели добавьте товары, а в ⚙️ Настройки укажите свои реквизиты СБП и ссылку на поддержку.",
-        "🎉 <b>Your bot is running!</b>\n" + D + "\n🤖 @{username}\n\n"
-        "Open it and send /admin — you're the owner and admin.\n"
-        "Add products in the admin panel and set your SBP details and support link in ⚙️ Settings.",
+        _card("🎉 Ваш бот запущен!", "🤖 @{username}") +
+        "\nОткройте его и отправьте /admin — вы владелец и админ.\n"
+        "В админ-панели добавьте товары, а в ⚙️ Настройки укажите свои реквизиты СБП.",
+        _card("🎉 Your bot is running!", "🤖 @{username}") +
+        "\nOpen it and send /admin — you're the owner and admin.\n"
+        "Add products in the admin panel and set your SBP details in ⚙️ Settings.",
     ),
     "mb_start_fail": (
         "⚠️ Бот @{username} не смог запуститься. Администратор уже получил уведомление и поможет.",
@@ -271,8 +345,8 @@ TEXTS = {
         "💜 <b>Thank you for your purchase!</b>\n\nPlease leave a review here: {link}\nMention {user} in it 🙏",
     ),
     "maint": (
-        "🛠 <b>Бот на технических работах</b>\n" + D + "\nМы скоро вернёмся! Попробуйте, пожалуйста, чуть позже.",
-        "🛠 <b>The bot is under maintenance</b>\n" + D + "\nWe'll be back soon! Please try again a bit later.",
+        _card("🛠 Бот на технических работах", "Мы скоро вернёмся! Попробуйте, пожалуйста, чуть позже."),
+        _card("🛠 The bot is under maintenance", "We'll be back soon! Please try again a bit later."),
     ),
     "stars_desc": ("Заказ #{oid}: {name}", "Order #{oid}: {name}"),
     "stars_paid": ("⭐ Оплата звёздами получена! Заказ #{oid}.", "⭐ Stars payment received! Order #{oid}."),
@@ -280,21 +354,21 @@ TEXTS = {
                    "Order unavailable — payment canceled, no stars were charged."),
     # {name} — товар, {price} — цена, {stock} — остаток, {link} — ссылка на товар
     "restock_post": (
-        "🔥 <b>ПОПОЛНЕНИЕ!</b> 🔥\n" + D + "\n📦 <b>{name}</b>\n💰 Цена: <b>{price}</b>\n📊 В наличии: <b>{stock}</b>\n\n"
+        "🔥 <b>ПОПОЛНЕНИЕ!</b>\n<blockquote>📦 <b>{name}</b>\n💰 Цена: <b>{price}</b>\n📊 В наличии: <b>{stock}</b></blockquote>\n"
         "⚡ Разбирают быстро — успейте забрать!\n👉 {link}",
-        "🔥 <b>RESTOCK!</b> 🔥\n" + D + "\n📦 <b>{name}</b>\n💰 Price: <b>{price}</b>\n📊 In stock: <b>{stock}</b>\n\n"
+        "🔥 <b>RESTOCK!</b>\n<blockquote>📦 <b>{name}</b>\n💰 Price: <b>{price}</b>\n📊 In stock: <b>{stock}</b></blockquote>\n"
         "⚡ Selling fast — grab yours!\n👉 {link}",
     ),
     # ---------- «🔐 Верификация Codex» ----------
     "cx_info": (
-        "🔐 <b>Верификация Codex</b>\n" + D + "\nПолучите номер 🇺🇸 <b>+1</b> для подтверждения аккаунта Codex.\n\n"
+        "🔐 <b>Верификация Codex</b>\n<blockquote>Получите номер 🇺🇸 <b>+1</b> для подтверждения аккаунта Codex.</blockquote>\n"
         "<b>Как это работает:</b>\n"
         "1️⃣ Оплатите — <b>{price}</b> или <b>{stars} ⭐</b>\n"
         "2️⃣ После подтверждения оплаты бот выдаст номер +1\n"
         "3️⃣ Введите номер в Codex и нажмите «📩 Запросить код»\n"
         "4️⃣ Введите код в Codex и нажмите «✅ Подтвердить»\n\n"
         "💰 Ваш баланс: {balance}",
-        "🔐 <b>Codex verification</b>\n" + D + "\nGet a 🇺🇸 <b>+1</b> number to verify your Codex account.\n\n"
+        "🔐 <b>Codex verification</b>\n<blockquote>Get a 🇺🇸 <b>+1</b> number to verify your Codex account.</blockquote>\n"
         "<b>How it works:</b>\n"
         "1️⃣ Pay — <b>{price}</b> or <b>{stars} ⭐</b>\n"
         "2️⃣ Once the payment is confirmed, the bot gives you a +1 number\n"
@@ -305,19 +379,19 @@ TEXTS = {
     "cx_off": ("🔐 Верификация временно недоступна. Загляните чуть позже.",
                "🔐 Verification is temporarily unavailable. Please check back later."),
     "cx_pay": (
-        "💳 <b>Оплата верификации Codex</b>\n" + D + "\n🧾 Заявка #{vid}\n💰 Сумма: <b>{price}</b>\n\n📲 Реквизиты:\n{details}\n\n"
-        "Переведите <b>точную сумму</b> и нажмите «Я оплатил».",
-        "💳 <b>Codex verification payment</b>\n" + D + "\n🧾 Request #{vid}\n💰 Amount: <b>{price}</b>\n\n📲 Details:\n{details}\n\n"
-        "Transfer the <b>exact amount</b> and tap «I have paid».",
+        _card("💳 Оплата верификации Codex", "🧾 Заявка #{vid}\n💰 Сумма: <b>{price}</b>") +
+        "\n📲 <b>Реквизиты:</b>\n{details}\n\nПереведите <b>точную сумму</b> и нажмите «Я оплатил».",
+        _card("💳 Codex verification payment", "🧾 Request #{vid}\n💰 Amount: <b>{price}</b>") +
+        "\n📲 <b>Details:</b>\n{details}\n\nTransfer the <b>exact amount</b> and tap «I have paid».",
     ),
     "cx_receipt_sent": ("✅ Чек отправлен администратору.\nПосле проверки бот выдаст вам номер +1.",
                         "✅ Receipt sent to the administrator.\nAfter review the bot will give you a +1 number."),
     "cx_getting": ("⏳ Оплата подтверждена, получаю номер…", "⏳ Payment confirmed, getting a number…"),
     "cx_number": (
-        "📱 <b>Ваш номер:</b> <code>+{number}</code>\n" + D + "\n1. Введите этот номер в Codex\n"
-        "2. Когда Codex отправит SMS, нажмите «📩 Запросить код»\n\n⏳ Номер действует около 20 минут.",
-        "📱 <b>Your number:</b> <code>+{number}</code>\n" + D + "\n1. Enter this number in Codex\n"
-        "2. When Codex sends the SMS, tap «📩 Get code»\n\n⏳ The number is valid for about 20 minutes.",
+        "📱 <b>Ваш номер:</b> <code>+{number}</code>\n<blockquote>1. Введите этот номер в Codex\n"
+        "2. Когда Codex отправит SMS, нажмите «📩 Запросить код»</blockquote>\n⏳ Номер действует около 20 минут.",
+        "📱 <b>Your number:</b> <code>+{number}</code>\n<blockquote>1. Enter this number in Codex\n"
+        "2. When Codex sends the SMS, tap «📩 Get code»</blockquote>\n⏳ The number is valid for about 20 minutes.",
     ),
     "cx_wait": ("⏳ Код ещё не пришёл. Подождите 10–20 секунд и нажмите ещё раз.",
                 "⏳ The code hasn't arrived yet. Wait 10–20 seconds and tap again."),
@@ -330,7 +404,48 @@ TEXTS = {
     "cx_rejected": ("❌ Оплата верификации (заявка #{vid}) не подтверждена. Если это ошибка — напишите в поддержку.",
                     "❌ Verification payment (request #{vid}) was not confirmed. If this is a mistake, contact support."),
     "cx_code_late": ("Код уже получен — отменить номер нельзя.", "The code was already received — the number can't be canceled."),
+    "sbp_in_chat": ("💳 Реквизиты для оплаты отправлены в чат с ботом.", "💳 Payment details were sent to the bot chat."),
 }
+
+# Тексты мини-приложения: ключ -> (RU, EN). Тоже меняются в 📝 Все тексты (там они с пометкой 📱),
+# поддерживают жирный/курсив и премиум-эмодзи.
+APP_TEXTS = {
+    "app_balance": ("Баланс", "Balance"),
+    "app_bonus_title": ("Ежедневный бонус", "Daily bonus"),
+    "app_bonus_ready": ("Заберите +{amount} на баланс", "Claim +{amount} to your balance"),
+    "app_bonus_wait": ("Следующий через {left}", "Next one in {left}"),
+    "app_bonus_btn": ("Забрать", "Claim"),
+    "app_categories": ("Категории", "Categories"),
+    "app_catalog": ("Каталог", "Catalog"),
+    "app_home": ("Главная", "Home"),
+    "app_orders": ("Заказы", "Orders"),
+    "app_profile": ("Профиль", "Profile"),
+    "app_hits": ("Хиты", "Hits"),
+    "app_disc": ("Скидки", "Sale"),
+    "app_new": ("Новинки", "New"),
+    "app_fav": ("Избранное", "Favorites"),
+    "app_search": ("Поиск товаров", "Search products"),
+    "app_buy": ("Купить", "Buy"),
+    "app_pay_balance": ("С баланса", "From balance"),
+    "app_pay_stars": ("Звёздами", "With Stars"),
+    "app_pay_sbp": ("По СБП", "Via SBP"),
+    "app_topup": ("Пополнить баланс", "Top up balance"),
+    "app_in_stock": ("В наличии", "In stock"),
+    "app_out": ("Нет в наличии", "Out of stock"),
+    "app_notify": ("Уведомить о поступлении", "Notify me"),
+    "app_empty": ("Здесь пока пусто", "Nothing here yet"),
+    "app_status": ("Статус", "Status"),
+    "app_statuses_hint": ("Статус растёт от суммы пополнений и оплат", "Your status grows with top-ups and payments"),
+    "app_refs": ("Пригласить друга", "Invite a friend"),
+    "app_refs_hint": ("{pct}% с каждой покупки друга", "{pct}% of every friend's purchase"),
+    "app_promo": ("Промокод", "Promo code"),
+    "app_support": ("Написать в поддержку", "Contact support"),
+    "app_theme": ("Тема", "Theme"),
+    "app_done": ("Готово! Товар отправлен в чат с ботом", "Done! The product was sent to the bot chat"),
+    "app_member_since": ("С нами с {date}", "Member since {date}"),
+}
+
+TEXTS.update(APP_TEXTS)
 
 # Статусы ботов клиентов («🤖 Создать своего бота»)
 BOT_STATUS = {
@@ -355,6 +470,7 @@ STATUS = {
 
 # Кнопки: ключ -> (русский, английский, цвет по умолчанию: "" / primary / success / danger)
 BUTTONS = {
+    "shop": ("🛍 Открыть магазин", "🛍 Open shop", "primary"),
     "catalog": ("🛍 Каталог", "🛍 Catalog", "primary"),
     "suppliers": ("🏭 Поставщики", "🏭 Suppliers", ""),
     "orders": ("📦 Заказы", "📦 Orders", ""),
@@ -377,6 +493,13 @@ BUTTONS = {
     "invite": ("📤 Пригласить друга", "📤 Invite a friend", "success"),
     "refresh": ("🔄 Обновить", "🔄 Refresh", ""),
     "withdraw": ("💸 Вывести", "💸 Withdraw", ""),
+    "topup": ("💳 Пополнить баланс", "💳 Top up balance", "success"),
+    "bonus": ("🎁 Ежедневный бонус", "🎁 Daily bonus", "primary"),
+    "statuses": ("🏅 Статусы", "🏅 Statuses", ""),
+    "topup_custom": ("✏️ Своя сумма", "✏️ Custom amount", ""),
+    "sup_write": ("✍️ Дописать сообщение", "✍️ Add a message", "primary"),
+    "sup_close": ("✅ Вопрос решён", "✅ Issue resolved", "success"),
+    "sup_reply": ("✍️ Ответить", "✍️ Reply", "primary"),
     "buy": ("🛒 Купить", "🛒 Buy", "success"),
     "qty_confirm": ("✅ Оформить заказ", "✅ Checkout", "success"),
     "qty_input": ("✏️ Ввести число", "✏️ Enter number", ""),
@@ -409,19 +532,23 @@ BUTTONS = {
 # Названия в списке — понятные для главных текстов, для остальных — начало самого текста.
 _TEXT_TITLES = {
     "welcome": "👋 Приветствие",
+    "profile": "👤 Профиль",
     "catalog_title": "🛍 Заголовок каталога",
     "mb_info": "🤖 Создать своего бота",
     "cx_info": "🔐 Верификация Codex",
     "review_ask": "💜 Просьба об отзыве",
     "restock_post": "🔥 Рассылка о пополнении",
     "maint": "🛠 Технические работы",
+    "sup_prompt": "💬 Поддержка: приглашение",
+    "topup_title": "💳 Пополнение баланса",
 }
 
 
 def _short_title(key):
     import re
     first = re.sub(r"<[^>]+>|\{[^}]+\}", "", TEXTS[key][0]).strip().split("\n")[0].strip()
-    return (first[:32] + "…") if len(first) > 33 else (first or key)
+    first = (first[:32] + "…") if len(first) > 33 else (first or key)
+    return ("📱 " + first) if key.startswith("app_") else first
 
 
 EDITABLE_TEXTS = {k: _TEXT_TITLES.get(k) or _short_title(k) for k in TEXTS
@@ -482,3 +609,9 @@ def plural(n, lang):
 def fdate(s):
     # "2026-09-29 12:00:00" -> "29.09.2026"
     return f"{s[8:10]}.{s[5:7]}.{s[:4]}" if s and len(s) >= 10 else "—"
+
+
+def bar(pct, width=12):
+    """Полоска прогресса для профиля: ▰▰▰▱▱▱"""
+    n = round(pct / 100 * width)
+    return "▰" * n + "▱" * (width - n)

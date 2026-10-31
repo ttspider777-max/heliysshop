@@ -15,7 +15,7 @@ import db
 import subscription
 from services import broadcast, deliver, fulfill, notify_arrival, safe_send, user_link
 from texts import BUTTONS, EDITABLE_TEXTS, bt, fdate, money, status, t
-from ui import HIDEABLE, fix_url, is_hidden, kb, pager, render, split_custom_emoji
+from ui import btn, HIDEABLE, fix_url, is_hidden, kb, media_of, pager, render, split_custom_emoji
 
 router = Router()
 router.message.filter(lambda e: bool(e.from_user) and admins.is_admin(e.from_user.id))
@@ -53,32 +53,67 @@ STYLE_ORDER = ["", "primary", "success", "danger"]
 
 # ======================= главное меню админки =======================
 def admin_kb():
+    s = db.stats()
+    maint = db.get_setting("maint") == "1"
+    tk = f" · {s['tickets']}" if s["tickets"] else ""
     return kb([
-        [B("📊 Статистика", "a:stats"), B("👥 Пользователи", "a:users")],
-        [B("👤 Профиль юзера", "a:uinfo"), B("💰 Баланс", "a:bal")],
-        [B("🚫 Забанить", "a:ban", style="danger"), B("✅ Разбанить", "a:unban", style="success")],
-        [B("📢 Рассылка", "a:bc", style="primary")],
-        [B("➕ Добавить товар", "a:addp", style="success"), B("📦 Пополнить склад", "a:additems", style="success")],
-        [B("🗂 Товары", "a:prods:0"), B("📁 Категории", "a:cats")],
-        [B("🔌 Внешние магазины (API)", "a:xs", style="primary")],
-        [B("🏭 Поставщики", "a:sup"), B("🙈 Скрыть кнопки", "a:vis")],
-        [B("📄 Документы (оплата)", "a:docs", style="primary")],
-        [B("🎟 Промокоды", "a:promos"), B("✏️ Оформление", "a:design")],
-        [B("📣 Обязательная подписка", "a:subs", style="primary"), B("⚙️ Настройки", "a:settings")],
-        [B("👮 Админы", "a:adm")] + ([] if config.CHILD else [B("🤖 Боты клиентов", "a:hb")]),
-        [B("🔐 Верификация Codex", "a:cx", style="primary")],
-        [B("🛠 Техработы: ВКЛ — выключить" if db.get_setting("maint") == "1" else "🛠 Включить техработы",
-           "a:maint", style="danger" if db.get_setting("maint") == "1" else None)],
+        [B("📊 Статистика", "a:stats"), B("👥 Пользователи", "a:usersm")],
+        [B(f"💬 Поддержка{tk}", "a:tk:open", style="primary" if s["tickets"] else None)],
+        [B("🛍 Товары и склад", "a:shopm", style="success")],
+        [B("🎨 Мини-приложение", "a:app", style="primary"), B("✏️ Оформление бота", "a:design")],
+        [B("📢 Рассылка", "a:bc"), B("🎟 Промокоды", "a:promos")],
+        [B("⚙️ Настройки", "a:settings"), B("📣 Подписка", "a:subs")],
+        [B("📄 Документы", "a:docs"), B("👮 Админы", "a:adm")],
+        ([B("🔐 Codex", "a:cx")] + ([] if config.CHILD else [B("🤖 Боты клиентов", "a:hb")])),
+        [B("💾 База и бэкапы", "a:bk")],
+        [B("🛠 Техработы: ВКЛ — выключить" if maint else "🛠 Включить техработы",
+           "a:maint", style="danger" if maint else None)],
         [B("🏠 Главное меню бота", "menu")],
     ])
 
 
+def shop_menu_kb():
+    return kb([
+        [B("➕ Добавить товар", "a:addp", style="success"), B("📦 Пополнить склад", "a:additems", style="success")],
+        [B("🗂 Товары", "a:prods:0"), B("📁 Категории", "a:cats")],
+        [B("🏭 Поставщики", "a:sup"), B("🔌 Внешние магазины (API)", "a:xs")],
+        [B("🙈 Скрыть кнопки", "a:vis")],
+        back(),
+    ])
+
+
+@router.callback_query(F.data == "a:shopm")
+async def cb_shop_menu(call: CallbackQuery):
+    s = db.stats()
+    await render(call, f"🛍 <b>Товары и склад</b>\n\n📦 Товаров: <b>{s['products']}</b>\n"
+                       f"🔑 На складе: <b>{s['stock']}</b> · продано {s['sold_items']}\n"
+                       f"🛠 Ждут ручной выдачи: <b>{s['manual']}</b>", shop_menu_kb())
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:usersm")
+async def cb_users_menu(call: CallbackQuery):
+    s = db.stats()
+    await render(call, f"👥 <b>Пользователи</b>\n\nВсего: <b>{s['users']}</b> · сегодня +{s['users_today']} · "
+                       f"забанено {s['banned']}\n💳 Сумма балансов: {money(s['balances'])}", kb([
+        [B("📋 Список и выгрузка", "a:users"), B("👤 Найти профиль", "a:uinfo")],
+        [B("💰 Изменить баланс", "a:bal")],
+        [B("🚫 Забанить", "a:ban", style="danger"), B("✅ Разбанить", "a:unban", style="success")],
+        back(),
+    ]))
+    await call.answer()
+
+
 def admin_text():
     s = db.stats()
-    maint = "🛠 <b>Бот на техработах</b> — покупатели видят сообщение о техработах.\n\n" if db.get_setting("maint") == "1" else ""
-    return (f"{maint}⚙️ <b>Админ-панель {html.escape(config.SHOP_NAME)}</b>\n\n👥 Пользователей: <b>{s['users']}</b>\n"
+    maint = "🛠 <b>Бот на техработах</b> — покупатели видят заглушку.\n\n" if db.get_setting("maint") == "1" else ""
+    return (f"{maint}⚙️ <b>Админ-панель · {html.escape(config.SHOP_NAME)}</b>\n"
+            f"<blockquote>👥 Пользователей: <b>{s['users']}</b> (+{s['users_today']} сегодня)\n"
             f"🛒 Продаж: <b>{s['orders']}</b> на <b>{money(s['rev'])}</b>\n"
-            f"🔎 Чеков на проверке: <b>{s['pending']}</b>\n🛠 Ждут ручной выдачи: <b>{s['manual']}</b>\n"
+            f"💳 Пополнений: <b>{money(s['topups_sum'])}</b></blockquote>\n"
+            f"💬 Обращений ждут ответа: <b>{s['tickets']}</b>\n"
+            f"🔎 Чеков на проверке: <b>{s['pending'] + s['topups_pending']}</b>\n"
+            f"🛠 Ждут ручной выдачи: <b>{s['manual']}</b>\n"
             f"💸 Заявок на вывод: <b>{s['wd_pending']}</b>"
             + ("" if config.CHILD else f"\n🤖 Ботов клиентов: <b>{s['bots_running']}</b> работает, "
                                        f"<b>{s['bots_pending']}</b> чеков на проверке"))
@@ -414,6 +449,9 @@ async def cb_np_kind(call: CallbackQuery, state: FSMContext):
     await show_admin_product(call, pid, prefix="✅ <b>Товар создан!</b>\n\n")
 
 
+MEDIA_NAMES = {"photo": "фото", "video": "видео", "animation": "GIF"}
+
+
 def admin_product_text(p):
     cat = db.category(p["category_id"])
     disc = ""
@@ -438,7 +476,7 @@ def admin_product_text(p):
             f"{ext_info}"
             f"🔑 Склад: {stock}\n"
             f"👁 Виден покупателям: {'да' if p['active'] else 'нет'}\n"
-            f"🖼 Фото: {'есть' if p['photo'] else 'нет'}\n\n"
+            f"🖼 Карточка: {MEDIA_NAMES.get(p['media_type'] or 'photo') if p['photo'] else 'нет'}\n\n"
             f"📝 Описание:\n{p['description'] or '—'}")
 
 
@@ -447,7 +485,7 @@ async def show_admin_product(target, pid, prefix=""):
     if not p:
         return await render(target, "Товар удалён.", kb([back("a:prods:0")]))
     rows = [[B("✏️ Название", f"a:pe:name:{pid}"), B("📝 Описание", f"a:pe:desc:{pid}")],
-            [B("🖼 Фото товара", f"a:pe:photo:{pid}")]]
+            [B("🖼 Карточка: фото / видео / GIF", f"a:pe:photo:{pid}", style="primary")]]
     if p["kind"] == "ext":  # цена внешнего товара = закупка + наценка магазина, меняется в настройках магазина
         rows.append([B("🔌 Настройки магазина (наценка)", f"a:xs:{p['ext_shop']}")])
     else:
@@ -487,7 +525,7 @@ async def prods_view(call, page):
         rows.append([B(f"{hid}{p['name']} — {money(p['price'])} [{st}]", f"a:p:{p['id']}")])
     rows.append(pager("a:prods:", page, pages))
     rows.append([B("➕ Добавить товар", "a:addp", style="success")])
-    rows.append(back())
+    rows.append(back("a:shopm"))
     await render(call, f"🗂 <b>Товары</b> — {len(items)}\n\nВ скобках — остаток на складе.", kb(rows))
 
 
@@ -501,7 +539,8 @@ PE_PROMPTS = {
     "name": "✏️ Отправьте новое название." + NAME_HINT,
     "desc": "📝 Отправьте новое описание (форматирование и премиум-эмодзи сохранятся, <code>-</code> — убрать):",
     "price": "💰 Отправьте новую цену (скидка при этом сбросится):",
-    "photo": "🖼 Отправьте <b>фото</b> товара — оно появится в карточке товара.\n<code>-</code> — убрать фото.",
+    "photo": "🖼 Отправьте <b>фото, видео или GIF</b> — это карточка товара в боте и в мини-приложении.\n"
+             "Видео в мини-приложении проигрывается без звука по кругу (до 20 МБ).\n<code>-</code> — убрать.",
     "disc": "🏷 Отправьте <b>цену со скидкой</b>.\nТекущая цена станет зачёркнутой, товар появится в разделе «Скидки».",
 }
 
@@ -519,14 +558,16 @@ async def i_pedit(m, state, d, txt, bot):
     if not p:
         return await done(m, state, "Товар не найден.")
     if field == "photo":
-        if m.photo:
-            db.update_product(pid, photo=m.photo[-1].file_id)
+        media = media_of(m)
+        if media:
+            db.update_product(pid, photo=media[1], media_type=media[0])
         elif txt == "-":
-            db.update_product(pid, photo=None)
+            db.update_product(pid, photo=None, media_type=None)
         else:
-            return await m.answer("Отправьте фото (как картинку, не файлом) или <code>-</code>:")
+            return await m.answer("Отправьте фото, видео или GIF (не файлом) или <code>-</code>:")
         await state.clear()
-        return await show_admin_product(m, pid, prefix="✅ Фото сохранено\n\n" if m.photo else "✅ Фото убрано\n\n")
+        return await show_admin_product(m, pid, prefix=f"✅ Карточка сохранена ({MEDIA_NAMES[media[0]]})\n\n"
+                                        if media else "✅ Карточка убрана\n\n")
     if field == "name":
         name, icon = split_custom_emoji(m)
         if not name:
@@ -817,6 +858,7 @@ async def cb_order_ok(call: CallbackQuery, bot: Bot):
         await mark_admin_msg(call, f"ℹ️ Уже обработан: {status(o['status'], 'ru') if o else '—'}")
         return await call.answer("Заказ уже обработан", show_alert=True)
     db.set_order(oid, status="paid")
+    db.add_deposited(o["user_id"], o["price"])  # реальные деньги — растёт статус покупателя
     res = await fulfill(bot, oid)
     labels = {"done": "✅ Одобрено, товар выдан", "manual": "✅ Одобрено, ждёт ручной выдачи",
               "refunded": "⚠️ Одобрено, но товара нет — деньги на балансе"}
@@ -835,9 +877,8 @@ async def cb_order_no(call: CallbackQuery, bot: Bot):
     db.restore_promo(o)
     u = db.get_user(o["user_id"])
     lang = u["lang"] if u else "ru"
-    surl = fix_url(db.get_setting("support_url", config.SUPPORT_URL))
     await safe_send(bot, o["user_id"], t("order_rejected", lang, oid=oid),
-                    kb([[InlineKeyboardButton(text=bt("support", lang), url=surl)]]) if surl else None)
+                    kb([[btn("support", lang, "sup")]]))
     await mark_admin_msg(call, f"❌ Отклонено ({html.escape(call.from_user.first_name)})")
     await call.answer("Отклонено")
 
@@ -928,7 +969,7 @@ async def cb_cats(call: CallbackQuery):
 async def cats_view(call):
     rows = [[B(f"{c['name']} ({db.count_in_category(c['id'], False)})", f"a:cat:{c['id']}")] for c in db.categories()]
     rows.append([B("➕ Добавить категорию", "a:catadd", style="success")])
-    rows.append(back())
+    rows.append(back("a:shopm"))
     await render(call, "📁 <b>Категории каталога</b>\n\nВ скобках — количество товаров. "
                        "Число товаров в каталоге показывается автоматически.", kb(rows))
 
@@ -960,8 +1001,10 @@ async def cb_cat(call: CallbackQuery):
     multi = bool(c["multi"])
     await render(call, f"📁 <b>{html.escape(c['name'])}</b>\n\nТоваров: {db.count_in_category(cid, False)}\n"
                        f"💎 Премиум-эмодзи: {'есть' if c['emoji_id'] else 'нет'}\n"
+                       f"🖼 Обложка в мини-приложении: {MEDIA_NAMES.get(c['media_type'] or 'photo') if c['photo'] else 'нет'}\n"
                        f"🔢 Покупка нескольких штук: {'включена' if multi else 'выключена'}",
                  kb([[B("✏️ Переименовать", f"a:catren:{cid}"), B("⬆️ Выше", f"a:catup:{cid}")],
+                     [B("🖼 Обложка: фото / видео / GIF", f"a:catm:{cid}", style="primary")],
                      [B("🔢 Несколько штук: ВКЛ ✅" if multi else "🔢 Несколько штук: ВЫКЛ", f"a:catmulti:{cid}",
                         style="success" if multi else None)],
                      [B("🗑 Удалить", f"a:catdel:{cid}", style="danger")],
@@ -992,6 +1035,26 @@ async def i_catren(m, state, d, txt, bot):
         return await m.answer("Отправьте название текстом:")
     db.update_category(d["cid"], name=name[:60], emoji_id=icon)
     await done(m, state, "✅ Категория переименована.", kb([back("a:cats", "◀️ К категориям")]))
+
+
+@router.callback_query(F.data.startswith("a:catm:"))
+async def cb_catmedia(call: CallbackQuery, state: FSMContext):
+    cid = int(call.data.split(":")[2])
+    await ask(call, state, "catm", "🖼 Отправьте <b>фото, видео или GIF</b> — это обложка категории в мини-приложении.\n"
+                                   "<code>-</code> — убрать обложку.", cancel=f"a:cat:{cid}", cid=cid)
+
+
+@inp("catm")
+async def i_catmedia(m, state, d, txt, bot):
+    media = media_of(m)
+    if media:
+        db.update_category(d["cid"], photo=media[1], media_type=media[0])
+    elif txt == "-":
+        db.update_category(d["cid"], photo=None, media_type=None)
+    else:
+        return await m.answer("Отправьте фото, видео или GIF (не файлом) или <code>-</code>:")
+    await done(m, state, "✅ Обложка сохранена." if media else "✅ Обложка убрана.",
+               kb([back(f"a:cat:{d['cid']}", "◀️ К категории")]))
 
 
 @router.callback_query(F.data.startswith("a:catup:"))
@@ -1101,7 +1164,7 @@ async def cb_design(call: CallbackQuery):
     rows = [[B("👋 Приветствие RU", "a:te:welcome:ru"), B("👋 Приветствие EN", "a:te:welcome:en")],
             [B(f"📝 Все тексты бота ({len(EDITABLE_TEXTS)})", "a:txl:0", style="primary")]]
     rows += [
-        [B("🖼 Фото приветствия", "a:wph")],
+        [B("🖼 Фото / видео приветствия", "a:wph")],
         [B("🔘 Кнопки (текст, премиум-эмодзи, цвет)", "a:btns:0")],
         [B("🔗 Свои кнопки в главном меню", "a:cbtns")],
         [B("👀 Предпросмотр главного меню", "menu")],
@@ -1170,20 +1233,23 @@ async def i_text_edit(m, state, d, txt, bot):
 @router.callback_query(F.data == "a:wph")
 async def cb_wphoto(call: CallbackQuery, state: FSMContext):
     has = "установлено" if db.get_setting("welcome_photo") else "нет"
-    await ask(call, state, "wph", f"🖼 Фото приветствия: {has}\n\nОтправьте фото (или <code>-</code>, чтобы убрать).",
+    await ask(call, state, "wph", f"🖼 Медиа приветствия: {has}\n\nОтправьте фото, видео или GIF (или <code>-</code>, чтобы убрать).",
               cancel="a:design")
 
 
 @inp("wph")
 async def i_wphoto(m, state, d, txt, bot):
-    if m.photo:
-        db.set_setting("welcome_photo", m.photo[-1].file_id)
-        await done(m, state, "✅ Фото приветствия установлено.", kb([back("a:design", "◀️ К оформлению")]))
+    media = media_of(m)
+    if media:
+        db.set_setting("welcome_photo", media[1])
+        db.set_setting("welcome_media_type", media[0])
+        await done(m, state, "✅ Приветствие обновлено.", kb([back("a:design", "◀️ К оформлению")]))
     elif txt == "-":
         db.set_setting("welcome_photo", None)
-        await done(m, state, "✅ Фото убрано.", kb([back("a:design", "◀️ К оформлению")]))
+        db.set_setting("welcome_media_type", None)
+        await done(m, state, "✅ Медиа убрано.", kb([back("a:design", "◀️ К оформлению")]))
     else:
-        await m.answer("Отправьте фото или <code>-</code>:")
+        await m.answer("Отправьте фото, видео или GIF или <code>-</code>:")
 
 
 # у бота клиента нет «🤖 Создать своего бота» — и кнопок этого раздела в оформлении тоже

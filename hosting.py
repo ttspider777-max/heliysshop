@@ -78,19 +78,40 @@ async def check_token(token):
         await bot.session.close()
 
 
+PORT_BASE = 20000  # бот клиента #N слушает 127.0.0.1:20000+N, наружу — <сайт>/b/N (см. web.py)
+
+
+def child_port(bid):
+    return PORT_BASE + int(bid)
+
+
 def _env(b):
-    drop = {"BOT_TOKEN", "DB_PATH", "OWNER_IDS", "SHOP_NAME", "PUBLIC_URL", "PORT", "CHILD_BOT"}
+    import appcfg
+    drop = {"BOT_TOKEN", "DB_PATH", "OWNER_IDS", "SHOP_NAME", "PUBLIC_URL", "PORT", "CHILD_BOT", "SUPER_ADMINS"}
     env = {k: v for k, v in os.environ.items() if k not in drop}
+    base = appcfg.public_url()
     env.update(
         CHILD_BOT="1",
         BOT_TOKEN=b["token"],
         DB_PATH=db_path(b["id"]),
         OWNER_IDS=str(b["user_id"]),
+        SUPER_ADMINS=",".join(str(i) for i in sorted(config.ADMINS)),  # владельцы основного бота — полный доступ
         SHOP_NAME=b["shop_name"] or b["username"] or "shop",
+        PORT=str(child_port(b["id"])),
+        PUBLIC_URL=f"{base}/b/{b['id']}" if base else "",
         PYTHONUNBUFFERED="1",
         PYTHONIOENCODING="utf-8",
     )
     return env
+
+
+async def restart(bid):
+    """Перезапуск процесса бота (например, после смены адреса сайта или замены базы)."""
+    await stop(bid)
+    b = db.hosted(bid)
+    if b and b["status"] == "running":
+        return await launch(bid)
+    return False
 
 
 def is_alive(bid):

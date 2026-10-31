@@ -30,7 +30,11 @@ if CHILD:
 else:
     ADMINS = {1867178992, 8717087613}
 
-# База данных: на Amvera — постоянное хранилище /data, локально — папка data рядом с ботом
+# Владельцы основного бота: в ботах клиентов у них полный доступ к админке (/admin),
+# но чеки и уведомления этих ботов им не приходят — их получает владелец бота.
+SUPER_ADMINS = {int(x) for x in os.getenv("SUPER_ADMINS", "").split(",") if x.strip().isdigit()} if CHILD else set()
+
+# База данных: папка data рядом с ботом (или /data, если хостинг даёт постоянное хранилище; путь можно задать DB_PATH)
 _BASE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.getenv("DB_PATH") or (
     "/data/heliys_shop.db" if os.path.isdir("/data") else os.path.join(_BASE, "data", "heliys_shop.db")
@@ -39,11 +43,14 @@ DB_PATH = os.getenv("DB_PATH") or (
 SHOP_NAME = (os.getenv("SHOP_NAME") or "shop") if CHILD else "heliys shop"
 SHOP_TITLE = SHOP_NAME if CHILD else "heliys 𝗌𝗁𝗈𝗉"  # заголовок в приветствии
 
-# Встроенный сайт с документами (/privacy, /terms) — публичные ссылки для платёжной системы.
-# На Amvera порт 80 (см. amvera.yaml), локально 8080. Можно задать переменной окружения PORT.
-# У ботов клиентов сайт не запускается: порт один на весь хостинг.
-WEB_PORT = int(os.getenv("PORT") or (80 if os.path.isdir("/data") else 8080))
-PUBLIC_URL = "" if CHILD else os.getenv("PUBLIC_URL", "")  # например https://heliys-shop.amvera.io
+# Встроенный сайт: мини-приложение (/app) и документы (/privacy, /terms).
+# BotHost: в панели включите «Использовать домен» и укажите порт 8080 (или задайте свой в переменной PORT —
+# он должен совпадать с полем «Порт» в панели). Выданный https-адрес вставьте в /admin → 🎨 Мини-приложение →
+# 🌐 Адрес сайта (или в переменную PUBLIC_URL / WEBAPP_URL).
+# Бот клиента слушает свой внутренний порт, а наружу его выводит основной бот по адресу <сайт>/b/<номер>.
+WEB_PORT = int(os.getenv("PORT") or 8080)
+WEB_HOST = "127.0.0.1" if CHILD else "0.0.0.0"
+PUBLIC_URL = os.getenv("PUBLIC_URL") or os.getenv("WEBAPP_URL") or ""  # например https://bot-xxx.bothost.tech
 
 # Значения по умолчанию (всё меняется в админ-панели → ⚙️ Настройки).
 # У ботов клиентов ссылки и реквизиты пустые — владелец указывает свои.

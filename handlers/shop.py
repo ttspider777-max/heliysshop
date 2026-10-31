@@ -14,7 +14,7 @@ import config
 import db
 from services import final_price, fulfill, user_link
 from texts import DIVIDER, money, plural, t
-from ui import btn, kb, legal_row, menu_row, pager, raw_btn, render
+from ui import as_media, btn, kb, legal_row, menu_row, pager, raw_btn, render, send_media, shop_btn
 
 router = Router()
 PER_PAGE = 8
@@ -181,9 +181,9 @@ async def show_product(call, pid, kind, lang):
         [btn("fav_del" if fav else "fav_add", lang, f"fv:{pid}:{kind}")],
         [btn("back", lang, f"l:{kind}:0"), btn("main_menu", lang, "menu")],
     ])
-    photo = p["photo"]
+    photo = as_media(p["photo"], p["media_type"])  # карточка товара: фото, видео или GIF
     if photo and len(re.sub(r"<[^>]+>", "", text)) > CAPTION_MAX:
-        # длинное описание не влезает в подпись: фото отдельным сообщением, под ним — карточка
+        # длинное описание не влезает в подпись: медиа отдельным сообщением, под ним — карточка
         msg = call.message if isinstance(call, CallbackQuery) else None
         chat_id = msg.chat.id if msg else call.chat.id
         try:
@@ -192,9 +192,9 @@ async def show_product(call, pid, kind, lang):
         except Exception:
             pass
         try:
-            await call.bot.send_photo(chat_id, photo)
+            await send_media(call.bot, chat_id, photo)
         except Exception as e:
-            logging.warning("фото товара %s не отправилось: %s", pid, e)
+            logging.warning("медиа товара %s не отправилось: %s", pid, e)
         await call.bot.send_message(chat_id, text, reply_markup=markup)
         return True
     await render(call, text, markup, photo=photo)
@@ -467,7 +467,7 @@ async def cb_order_cancel(call: CallbackQuery, state: FSMContext, lang: str):
         db.set_order(oid, status="canceled")
         db.restore_promo(o)
     await state.set_state(None)
-    await render(call, t("order_canceled", lang), kb([[btn("catalog", lang, "cat")], menu_row(lang)]))
+    await render(call, t("order_canceled", lang), kb([[shop_btn(lang)], menu_row(lang)]))
     await call.answer()
 
 
@@ -483,7 +483,11 @@ async def msg_receipt(m: Message, state: FSMContext, lang: str, bot: Bot):
     await send_receipt(m, o, lang, bot)
 
 
-@router.message(StateFilter(None), F.photo | F.document)
+def _order_receipt_expected(m: Message):
+    return bool(m.from_user) and db.latest_wait_kind(m.from_user.id) == "order"
+
+
+@router.message(StateFilter(None), F.photo | F.document, _order_receipt_expected)
 async def msg_receipt_fallback(m: Message, lang: str, bot: Bot):
     """Чек прислали без нажатия «Я оплатил» или после перезапуска бота — ищем неоплаченный заказ."""
     o = db.last_wait_pay(m.from_user.id)

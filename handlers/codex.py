@@ -136,14 +136,7 @@ async def msg_receipt_wrong(m: Message, lang: str):
 
 def _codex_receipt_expected(m: Message):
     """Чек без «Я оплатил»: он за верификацию, если эта заявка новее заказа и заявки на бота."""
-    if not m.from_user:
-        return False
-    v = db.codex_wait_pay(m.from_user.id)
-    if not v:
-        return False
-    o = db.last_wait_pay(m.from_user.id)
-    h = db.hosted_wait_pay(m.from_user.id)
-    return all(x is None or v["created"] >= x["created"] for x in (o, h))
+    return bool(m.from_user) and db.latest_wait_kind(m.from_user.id) == "codex"
 
 
 @router.message(StateFilter(None), F.photo | F.document, _codex_receipt_expected)
@@ -287,6 +280,7 @@ async def cb_cx_receipt(call: CallbackQuery, bot: Bot):
     who = html.escape(call.from_user.first_name)
     if op == "cxok":
         db.set_codex(v["id"], status="paid")
+        db.add_deposited(v["user_id"], v["price"])
         await call.answer("Одобрено, выдаю номер…")
         ok = await issue_number(bot, v["id"])
         await mark_admin_msg(call, f"✅ Одобрено, {'номер выдан' if ok else 'номер не получен — деньги на балансе'} ({who})")
@@ -294,9 +288,8 @@ async def cb_cx_receipt(call: CallbackQuery, bot: Bot):
         db.set_codex(v["id"], status="rejected")
         u = db.get_user(v["user_id"])
         lang = u["lang"] if u else "ru"
-        surl = fix_url(db.get_setting("support_url", config.SUPPORT_URL))
         await safe_send(bot, v["user_id"], t("cx_rejected", lang, vid=v["id"]),
-                        kb([[InlineKeyboardButton(text=bt("support", lang), url=surl)]]) if surl else None)
+                        kb([[btn("support", lang, "sup")]]))
         await mark_admin_msg(call, f"❌ Отклонено ({who})")
         await call.answer("Отклонено")
 

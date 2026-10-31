@@ -247,10 +247,12 @@ async def i_seller(m, state, d, txt, bot):
 @router.callback_query(F.data == "a:pubu")
 async def cb_pubu(call: CallbackQuery, state: FSMContext):
     await ask(call, state, "pubu",
-              "🌐 <b>Адрес сайта бота</b>\n\nБот сам публикует страницы <code>/privacy</code> и <code>/terms</code>. "
+              "🌐 <b>Адрес сайта бота</b>\n\nПо этому адресу работает <b>мини-приложение магазина</b> "
+              "(<code>/app</code>), а также страницы <code>/privacy</code> и <code>/terms</code>. Нужен https. "
               "Отправьте публичный адрес вашего проекта на хостинге, например "
-              "<code>https://heliys-shop.amvera.io</code> — из него получатся ссылки для платёжной системы.\n\n"
-              f"<i>Бот слушает порт {config.WEB_PORT}; на Amvera включите для проекта домен (порт 80).</i>\n"
+              "<code>https://bot-xxxx.bothost.tech</code> — из него получатся ссылки для платёжной системы.\n\n"
+              f"<i>Бот слушает порт {config.WEB_PORT}. На BotHost: настройки бота → «Использовать домен», "
+              f"порт {config.WEB_PORT}, затем пересборка — панель выдаст https-адрес.</i>\n"
               "<code>-</code> — убрать.", cancel="a:docs")
 
 
@@ -263,10 +265,19 @@ async def i_pubu(m, state, d, txt, bot):
         if not url.startswith("http"):
             url = "https://" + url
         if "." not in url:
-            return await m.answer("Не похоже на адрес сайта. Пример: <code>https://heliys-shop.amvera.io</code>")
+            return await m.answer("Не похоже на адрес сайта. Пример: <code>https://bot-xxxx.bothost.tech</code>")
         db.set_setting("public_url", url)
     await state.clear()
-    await docs_view(m, "✅ Сохранено\n\n")
+    await web.setup_menu_button(bot)  # кнопка «Магазин» у поля ввода ведёт на новый адрес
+    note = "✅ Сохранено\n\n"
+    if not config.CHILD:
+        import hosting
+        running = db.hosted_running()
+        for b in running:  # боты клиентов получают адрес мини-приложения при запуске
+            await hosting.restart(b["id"])
+        if running:
+            note = f"✅ Сохранено. Перезапущено ботов клиентов: {len(running)}\n\n"
+    await docs_view(m, note)
 
 
 @router.callback_query(F.data == "a:gate")

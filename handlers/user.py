@@ -8,12 +8,13 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
 
 import admins
+import appcfg
 import config
 import db
 import subscription
 from services import safe_send, to_admins, user_link
-from texts import fdate, money, status, t
-from ui import btn, kb, main_kb, menu_row, pager, render
+from texts import bar, fdate, money, status, t
+from ui import as_media, btn, kb, main_kb, menu_row, pager, render, shop_btn
 
 router = Router()
 
@@ -27,8 +28,10 @@ async def show_main(target, lang, uid, state: FSMContext = None):
         await state.clear()
     u = db.get_user(uid)
     text = t("welcome", lang, name=html.escape((u["first_name"] if u else None) or "friend"),
-             balance=money(u["balance"] if u else 0), orders=db.count_user_orders(uid))
-    await render(target, text, main_kb(lang, admins.is_admin(uid)), photo=db.get_setting("welcome_photo"))
+             balance=money(u["balance"] if u else 0), orders=db.count_user_orders(uid),
+             status=html.escape(appcfg.status_label(u)))
+    media = as_media(db.get_setting("welcome_photo"), db.get_setting("welcome_media_type"))
+    await render(target, text, main_kb(lang, admins.is_admin(uid)), photo=media)
 
 
 @router.message(CommandStart())
@@ -45,6 +48,14 @@ async def cmd_start(m: Message, command: CommandObject, state: FSMContext, lang:
         await state.clear()
         if await show_product(m, int(arg[2:]), "new", lang):
             return
+    if arg == "topup":  # из мини-приложения: «пополнить баланс»
+        from handlers.topup import topup_view
+        await state.clear()
+        return await topup_view(m, lang, m.from_user.id)
+    if arg == "support":  # из мини-приложения: «написать в поддержку»
+        from handlers.support import support_view
+        await state.clear()
+        return await support_view(m, state, lang, m.from_user.id)
     await show_main(m, lang, m.from_user.id, state)
 
 
@@ -88,18 +99,74 @@ async def cb_setlang(call: CallbackQuery, state: FSMContext):
 
 
 # ---------- профиль ----------
+def profile_text(u, lang):
+    cur, nxt, pct, left = appcfg.user_status(u)
+    if nxt:
+        progress = t("profile_next", lang, bar=bar(pct), pct=pct, next=html.escape(nxt["name"]), left=money(left))
+    else:
+        progress = t("profile_max", lang)
+    uname = f"@{html.escape(u['username'])}" if u["username"] else html.escape(u["first_name"] or "—")
+    text = t("profile", lang, id=u["id"], username=uname, name=html.escape(u["first_name"] or ""),
+             date=fdate(u["joined"]), orders=db.count_user_orders(u["id"]), balance=money(u["balance"]),
+             status=html.escape(appcfg.status_label(u)), progress=progress, deposited=money(u["deposited"]))
+    if u["promo_percent"]:
+        text += t("profile_promo", lang, code=html.escape(u["promo_code"]), pct=u["promo_percent"])
+    return text
+
+
+def profile_kb(u, lang):
+    bonus = []
+    if appcfg.bonus_on():
+        left = appcfg.bonus_left(u)
+        label = None if not left else f"⏳ {appcfg.fmt_left(left, lang)}"
+        b = btn("bonus", lang, "bonus")
+        if b and label:
+            b.text = f"{b.text} · {label}"
+        bonus = [b]
+    return kb([
+        [btn("topup", lang, "topup")],
+        bonus,
+        [btn("my_orders", lang, "ord:p:0"), btn("fav", lang, "l:pfav:0")],
+        [btn("statuses", lang, "stl"), shop_btn(lang, "#profile")],
+        [btn("back", lang, "menu")],
+    ])
+
+
+async def show_profile(target, lang, uid, note=None):
+    u = db.get_user(uid)
+    await render(target, (note + "\n\n" if note else "") + profile_text(u, lang), profile_kb(u, lang))
+
+
 @router.callback_query(F.data == "profile")
 async def cb_profile(call: CallbackQuery, state: FSMContext, lang: str):
     await state.clear()
+    await show_profile(call, lang, call.from_user.id)
+    await call.answer()
+
+
+@router.callback_query(F.data == "bonus")
+async def cb_bonus(call: CallbackQuery, lang: str):
+    if not appcfg.bonus_on():
+        return await call.answer(t("bonus_off", lang), show_alert=True)
+    got = appcfg.claim_bonus(call.from_user.id)
+    if got is None:
+        left = appcfg.bonus_left(db.get_user(call.from_user.id))
+        return await call.answer(t("bonus_wait", lang, left=appcfg.fmt_left(left, lang)), show_alert=True)
+    await call.answer(t("bonus_ok", lang, amount=money(got)), show_alert=True)
+    await show_profile(call, lang, call.from_user.id)
+
+
+@router.callback_query(F.data == "stl")
+async def cb_statuses(call: CallbackQuery, lang: str):
     u = db.get_user(call.from_user.id)
-    text = t("profile", lang, id=u["id"], date=fdate(u["joined"]),
-             orders=db.count_user_orders(u["id"]), balance=money(u["balance"]))
-    if u["promo_percent"]:
-        text += t("profile_promo", lang, code=html.escape(u["promo_code"]), pct=u["promo_percent"])
-    await render(call, text, kb([
-        [btn("my_orders", lang, "ord:p:0"), btn("fav", lang, "l:pfav:0")],
-        [btn("back", lang, "menu")],
-    ]))
+    cur = appcfg.user_status(u)[0]
+    lines = []
+    for s in appcfg.statuses():
+        mark = "👉 " if s["name"] == cur["name"] else "▫️ "
+        name = f"{s.get('emoji') or ''} {html.escape(s['name'])}".strip()
+        lines.append(f"{mark}<b>{name}</b> — от {money(s['min'])}" if lang != "en"
+                     else f"{mark}<b>{name}</b> — from {money(s['min'])}")
+    await render(call, t("statuses", lang, list="\n".join(lines)), kb([[btn("back", lang, "profile")]]))
     await call.answer()
 
 
@@ -212,4 +279,4 @@ async def msg_promo(m: Message, state: FSMContext, lang: str):
     db.update_user(m.from_user.id, promo_code=p["code"], promo_percent=p["percent"])
     await state.clear()
     await m.answer(t("promo_ok", lang, code=html.escape(p["code"]), pct=p["percent"]),
-                   reply_markup=kb([[btn("catalog", lang, "cat")], menu_row(lang)]))
+                   reply_markup=kb([[shop_btn(lang)], menu_row(lang)]))

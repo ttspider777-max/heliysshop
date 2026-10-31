@@ -116,8 +116,36 @@ CREATE TABLE IF NOT EXISTS codex (
     code TEXT,
     created TEXT
 );
+CREATE TABLE IF NOT EXISTS tickets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    status TEXT,
+    created TEXT,
+    updated TEXT,
+    closed_by INTEGER
+);
+CREATE TABLE IF NOT EXISTS ticket_msgs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id INTEGER,
+    sender TEXT,
+    admin_id INTEGER,
+    text TEXT,
+    file_id TEXT,
+    kind TEXT,
+    created TEXT
+);
+CREATE TABLE IF NOT EXISTS topups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    amount REAL,
+    method TEXT,
+    status TEXT,
+    receipt TEXT,
+    created TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_items_prod ON items(product_id, sold);
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_tmsg ON ticket_msgs(ticket_id);
 """
 
 
@@ -154,11 +182,21 @@ def _migrate():
                             ("products", "ext_stock", "INTEGER DEFAULT 0"),
                             ("users", "agreed", "INTEGER DEFAULT 0"),
                             ("orders", "qty", "INTEGER DEFAULT 1"),
-                            ("products", "photo", "TEXT")):
+                            ("products", "photo", "TEXT"),
+                            ("products", "media_type", "TEXT"),      # photo / video / animation
+                            ("categories", "photo", "TEXT"),
+                            ("categories", "media_type", "TEXT"),
+                            ("users", "deposited", "REAL DEFAULT 0"),  # сколько реальных денег принёс (для статуса)
+                            ("users", "bonus_at", "TEXT")):           # когда забирал ежедневный бонус
         cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})")]
         if col not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
     conn.commit()
+    if get_setting("mig_deposited") is None:
+        # статус считается по реальным деньгам: прошлые оплаты по СБП и звёздами тоже засчитываем
+        x("""UPDATE users SET deposited = COALESCE((SELECT SUM(price) FROM orders o WHERE o.user_id=users.id
+             AND o.method IN ('sbp','stars') AND o.status IN ('done','manual')), 0)""")
+        set_setting("mig_deposited", "1")
 
 
 def init():
@@ -167,6 +205,48 @@ def init():
     if not val("SELECT COUNT(*) FROM categories"):
         x("INSERT INTO categories(name, position) VALUES (?, 1)", ("🤖 Ai-Сервисы",))
         x("INSERT INTO categories(name, position) VALUES (?, 2)", ("📱 Физ. номера",))
+
+
+# ---------- бэкап базы ----------
+def backup_bytes():
+    """Полная копия базы (товары, пользователи, оформление) в виде файла .db."""
+    import tempfile
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        dst = sqlite3.connect(path)
+        conn.backup(dst)
+        dst.close()
+        with open(path, "rb") as f:
+            return f.read()
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def check_backup(path):
+    """None — файл подходит для восстановления, иначе текст ошибки."""
+    try:
+        src = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        names = {r[0] for r in src.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        src.close()
+    except sqlite3.DatabaseError:
+        return "это не файл базы SQLite"
+    if not {"users", "settings", "products"} <= names:
+        return "в файле нет таблиц бота (users, settings, products)"
+    return None
+
+
+def restore_from(path):
+    """Заменяет текущую базу содержимым файла (после check_backup)."""
+    src = sqlite3.connect(path)
+    src.backup(conn)
+    src.close()
+    _cache.clear()
+    conn.executescript(SCHEMA)
+    _migrate()
 
 
 # ---------- settings ----------
@@ -657,6 +737,77 @@ def codex_wait_pay(uid):
                  AND created >= datetime('now','localtime','-1 day') ORDER BY id DESC LIMIT 1""", (uid,))
 
 
+# ---------- поддержка (обращения) ----------
+# Статусы: open — ждёт ответа админа, answered — админ ответил, closed — закрыто, rejected — отклонено.
+def create_ticket(uid):
+    return x("INSERT INTO tickets(user_id, status, created, updated) VALUES (?, 'open', ?, ?)", (uid, now(), now()))
+
+
+def ticket(tid):
+    return q1("SELECT * FROM tickets WHERE id=?", (tid,))
+
+
+def set_ticket(tid, **kw):
+    kw.setdefault("updated", now())
+    sets = ", ".join(f"{k}=?" for k in kw)
+    x(f"UPDATE tickets SET {sets} WHERE id=?", (*kw.values(), tid))
+
+
+def user_active_ticket(uid):
+    return q1("SELECT * FROM tickets WHERE user_id=? AND status IN ('open','answered') ORDER BY id DESC LIMIT 1", (uid,))
+
+
+def add_ticket_msg(tid, sender, text, file_id=None, kind=None, admin_id=None):
+    return x("INSERT INTO ticket_msgs(ticket_id, sender, admin_id, text, file_id, kind, created) VALUES (?,?,?,?,?,?,?)",
+             (tid, sender, admin_id, text, file_id, kind, now()))
+
+
+def ticket_msgs(tid):
+    return q("SELECT * FROM ticket_msgs WHERE ticket_id=? ORDER BY id", (tid,))
+
+
+def tickets_list(statuses, limit=50):
+    marks = ",".join("?" * len(statuses))
+    return q(f"SELECT * FROM tickets WHERE status IN ({marks}) ORDER BY updated DESC LIMIT ?", (*statuses, limit))
+
+
+def user_tickets(uid, limit=10):
+    return q("SELECT * FROM tickets WHERE user_id=? ORDER BY id DESC LIMIT ?", (uid, limit))
+
+
+# ---------- пополнение баланса ----------
+def create_topup(uid, amount, method, status="wait_pay"):
+    return x("INSERT INTO topups(user_id, amount, method, status, created) VALUES (?,?,?,?,?)",
+             (uid, amount, method, status, now()))
+
+
+def topup(tid):
+    return q1("SELECT * FROM topups WHERE id=?", (tid,))
+
+
+def set_topup(tid, **kw):
+    sets = ", ".join(f"{k}=?" for k in kw)
+    x(f"UPDATE topups SET {sets} WHERE id=?", (*kw.values(), tid))
+
+
+def topup_wait_pay(uid):
+    return q1("""SELECT * FROM topups WHERE user_id=? AND status='wait_pay' AND method='sbp'
+                 AND created >= datetime('now','localtime','-1 day') ORDER BY id DESC LIMIT 1""", (uid,))
+
+
+def add_deposited(uid, amount):
+    """Реальные деньги покупателя (пополнения, оплаты по СБП и звёздами) — от них зависит статус."""
+    x("UPDATE users SET deposited=ROUND(COALESCE(deposited,0)+?, 2) WHERE id=?", (amount, uid))
+
+
+def latest_wait_kind(uid):
+    """Что ждёт чек от покупателя: order / codex / hosted / topup (самая свежая заявка) или None.
+    Нужен, чтобы чек, присланный без «Я оплатил», попал в нужный раздел."""
+    found = [(r["created"], kind) for kind, r in (("order", last_wait_pay(uid)), ("codex", codex_wait_pay(uid)),
+                                                   ("hosted", hosted_wait_pay(uid)), ("topup", topup_wait_pay(uid))) if r]
+    return max(found)[1] if found else None
+
+
 # ---------- stats ----------
 def stats():
     today = "date('now','localtime')"
@@ -681,6 +832,9 @@ def stats():
         "wd_pending": val("SELECT COUNT(*) FROM withdrawals WHERE status='pending'"),
         "bots_pending": val("SELECT COUNT(*) FROM hosted_bots WHERE status='pending'"),
         "bots_running": val("SELECT COUNT(*) FROM hosted_bots WHERE status='running'"),
+        "tickets": val("SELECT COUNT(*) FROM tickets WHERE status='open'"),
+        "topups_pending": val("SELECT COUNT(*) FROM topups WHERE status='pending'"),
+        "topups_sum": val("SELECT COALESCE(SUM(amount),0) FROM topups WHERE status='done'"),
         "top": q1(f"""SELECT product_name, COUNT(*) c FROM orders WHERE {paid}
                       GROUP BY product_id ORDER BY c DESC LIMIT 1"""),
     }

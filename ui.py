@@ -2,7 +2,7 @@ import logging
 import re
 
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
 
 import config
 import db
@@ -34,24 +34,34 @@ def strip_emoji(text):
     return cleaned or text
 
 
-def btn(key, lang, cb=None, url=None):
+def btn(key, lang, cb=None, url=None, web_app=None):
     """Кнопка из настраиваемого набора: текст, премиум-эмодзи и цвет берутся из админ-панели.
     Если админ скрыл кнопку (🙈 в админ-панели), возвращает None — kb() такие кнопки пропускает."""
     if is_hidden(HIDE_ALIAS.get(key, key)):
         return None
     icon = db.get_setting(f"bi:{key}")
     style = db.get_setting(f"bs:{key}", BUTTONS[key][2])
-    return raw_btn(bt(key, lang), cb, url, icon=icon, style=style)
+    return raw_btn(bt(key, lang), cb, url, icon=icon, style=style, web_app=web_app)
 
 
-def raw_btn(text, cb=None, url=None, icon=None, style=None):
+def raw_btn(text, cb=None, url=None, icon=None, style=None, web_app=None):
     kw = {}
     if icon:
         kw["icon_custom_emoji_id"] = icon
         text = strip_emoji(text)  # премиум-эмодзи заменяет обычное
     if style:
         kw["style"] = style
+    if web_app:
+        kw["web_app"] = WebAppInfo(url=web_app)
+        cb = url = None
     return InlineKeyboardButton(text=text, callback_data=cb, url=url, **kw)
+
+
+def shop_btn(lang, path=""):
+    """«🛍 Открыть магазин»: мини-приложение, а если адрес сайта не настроен — каталог в самом боте."""
+    import appcfg
+    url = appcfg.app_url()
+    return btn("shop", lang, web_app=url + path) if url else btn("shop", lang, "cat")
 
 
 def kb(rows):
@@ -62,7 +72,7 @@ def kb(rows):
 
 # Кнопки, которые админ может скрыть (админ-панель → 🙈 Скрыть кнопки), по разделам бота.
 VIS_GROUPS = (
-    ("🏠 Главное меню", ("catalog", "codex") + (() if config.CHILD else ("mkbot",)) +
+    ("🏠 Главное меню", ("shop", "codex") + (() if config.CHILD else ("mkbot",)) +
      ("suppliers", "orders", "profile", "refs", "promo", "lang", "reviews", "support", "docs")),
     ("🛍 Каталог", ("hits", "disc", "new", "recent", "search", "fav")),
     ("👤 Профиль и рефералы", ("my_orders", "invite", "withdraw", "refresh")),
@@ -101,20 +111,15 @@ def legal_row(lang):
 
 
 def main_kb(lang, is_admin=False):
-    links = []
-    for key, setting, default in (("reviews", "reviews_url", config.REVIEWS_URL),
-                                  ("support", "support_url", config.SUPPORT_URL)):
-        u = fix_url(db.get_setting(setting, default))
-        if u:
-            links.append(btn(key, lang, url=u))
+    reviews = fix_url(db.get_setting("reviews_url", config.REVIEWS_URL))
     rows = [
-        [btn("catalog", lang, "cat")],
+        [shop_btn(lang)],                                     # «🛍 Открыть магазин» — мини-приложение
+        [btn("profile", lang, "profile"), btn("orders", lang, "ord:m:0")],
         [btn("codex", lang, "codex")] if codex_on() else [],  # «🔐 Верификация Codex»
         [] if config.CHILD else [btn("mkbot", lang, "mkbot")],  # «🤖 Создать своего бота»
-        [btn("orders", lang, "ord:m:0"), btn("profile", lang, "profile")],
         [btn("suppliers", lang, f"l:c{db.suppliers_cid()}:0"), btn("refs", lang, "refs")],
         [btn("promo", lang, "promo"), btn("lang", lang, "lang")],
-        links,
+        [btn("support", lang, "sup"), btn("reviews", lang, url=reviews) if reviews else None],
         [btn("docs", lang, "docs")] if has_docs() else [],
     ]
     rows = [[x for x in r if x] for r in rows]
@@ -144,8 +149,19 @@ def pager(prefix, page, pages):
     return row
 
 
+def as_media(photo, media_type=None):
+    """file_id + тип (photo / video / animation) -> кортеж для render(); None — без медиа."""
+    if not photo:
+        return None
+    if isinstance(photo, tuple):
+        return photo
+    return (media_type or "photo", photo)
+
+
 async def render(target, text, markup=None, photo=None):
-    """Показать экран: для callback — редактируем сообщение, для сообщения — отправляем новое."""
+    """Показать экран: для callback — редактируем сообщение, для сообщения — отправляем новое.
+    photo — file_id фото или кортеж (тип, file_id), где тип: photo / video / animation."""
+    photo = as_media(photo)
     if isinstance(target, CallbackQuery):
         msg = target.message
         bot = target.bot
@@ -168,10 +184,30 @@ async def render(target, text, markup=None, photo=None):
     await _send(bot, chat_id, text, markup, photo)
 
 
+async def send_media(bot, chat_id, media, caption=None, markup=None):
+    kind, file_id = media
+    if kind == "video":
+        return await bot.send_video(chat_id, file_id, caption=caption, reply_markup=markup)
+    if kind == "animation":
+        return await bot.send_animation(chat_id, file_id, caption=caption, reply_markup=markup)
+    return await bot.send_photo(chat_id, file_id, caption=caption, reply_markup=markup)
+
+
+def media_of(m: Message):
+    """Фото / видео / GIF из сообщения админа -> (тип, file_id) или None."""
+    if m.photo:
+        return ("photo", m.photo[-1].file_id)
+    if m.video:
+        return ("video", m.video.file_id)
+    if m.animation:
+        return ("animation", m.animation.file_id)
+    return None
+
+
 def _without_url_buttons(markup):
     if not markup:
         return markup
-    rows = [[b for b in row if not b.url] for row in markup.inline_keyboard]
+    rows = [[b for b in row if not b.url and not b.web_app] for row in markup.inline_keyboard]
     return InlineKeyboardMarkup(inline_keyboard=[r for r in rows if r])
 
 
@@ -180,7 +216,7 @@ async def _send(bot, chat_id, text, markup, photo):
     не должны ломать экран (иначе /start просто молчит)."""
     try:
         if photo:
-            await bot.send_photo(chat_id, photo, caption=text, reply_markup=markup)
+            await send_media(bot, chat_id, photo, text, markup)
         else:
             await bot.send_message(chat_id, text, reply_markup=markup)
         return

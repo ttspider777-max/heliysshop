@@ -13,7 +13,7 @@ from handlers.admin import B, back, router
 from handlers.shop import name_html
 from services import broadcast
 from texts import money, t
-from ui import btn, kb, render
+from ui import as_media, btn, kb, render, send_media
 
 CAPTION_MAX = 1024
 
@@ -31,7 +31,7 @@ def post_kb(p, lang):
 async def send_post(bot: Bot, chat_id, p, lang, username):
     text = post_text(p, lang, username)
     if p["photo"] and len(re.sub(r"<[^>]+>", "", text)) <= CAPTION_MAX:
-        await bot.send_photo(chat_id, p["photo"], caption=text, reply_markup=post_kb(p, lang))
+        await send_media(bot, chat_id, as_media(p["photo"], p["media_type"]), text, post_kb(p, lang))
     else:
         await bot.send_message(chat_id, text, reply_markup=post_kb(p, lang))
 

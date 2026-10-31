@@ -7,8 +7,13 @@
 """
 import asyncio
 import html
+import io
 import logging
+import os
 import re
+import sqlite3
+import tempfile
+import zipfile
 
 from aiogram import Bot, F, Router
 from aiogram.filters import StateFilter
@@ -132,14 +137,7 @@ async def msg_receipt_wrong(m: Message, lang: str):
 
 def _bot_receipt_expected(m: Message):
     """Чек прислали без «Я оплатил» (или после перезапуска бота): он за бота, если заявка на бота новее заказа."""
-    if not m.from_user:
-        return False
-    b = db.hosted_wait_pay(m.from_user.id)
-    if not b:
-        return False
-    o = db.last_wait_pay(m.from_user.id)
-    c = db.codex_wait_pay(m.from_user.id)
-    return all(x is None or b["created"] >= x["created"] for x in (o, c))
+    return bool(m.from_user) and db.latest_wait_kind(m.from_user.id) == "hosted"
 
 
 @router.message(StateFilter(None), F.photo | F.document, _bot_receipt_expected)
@@ -267,9 +265,8 @@ async def cb_hb_receipt(call: CallbackQuery, bot: Bot):
         await call.answer("Одобрено")
     else:
         db.set_hosted(b["id"], status="rejected")
-        surl = fix_url(db.get_setting("support_url", config.SUPPORT_URL))
         await safe_send(bot, b["user_id"], t("mb_rejected", lang, bid=b["id"]),
-                        kb([[InlineKeyboardButton(text=bt("support", lang), url=surl)]]) if surl else None)
+                        kb([[btn("support", lang, "sup")]]))
         await mark_admin_msg(call, f"❌ Отклонено ({who})")
         await call.answer("Отклонено")
 
@@ -290,6 +287,7 @@ async def hb_list(target, prefix=""):
         rows.append([B(f"{STATUS_ICON.get(b['status'], '•')} #{b['id']} {('@' + b['username']) if b['username'] else '—'}",
                        f"a:hbv:{b['id']}")])
     rows.append([B(f"📢 Рассылка владельцам ботов ({len(db.hosted_owner_ids())})", "a:hbbc", style="primary")])
+    rows.append([B("📦 Бэкап всех баз (.zip)", "a:hbzip")])
     rows.append(back())
     running = sum(1 for b in bots if b["status"] == "running")
     text = (f"{prefix}🤖 <b>Боты клиентов</b>\n\nРаботает: <b>{running}</b> · всего: <b>{len(bots)}</b>\n"
@@ -313,18 +311,172 @@ async def hb_view(target, bid, prefix=""):
             f"💰 Оплачено: {money(b['price'])}\n"
             f"📅 Заявка: {fdate(b['created'])}\n"
             f"🚀 Запущен: {fdate(b['started']) if b['started'] else '—'}")
+    if b["token"]:
+        text += ("\n\n🔑 <b>Полный доступ:</b> вы админ в этом боте — откройте его и отправьте /admin. "
+                 "Чеки и обращения этого бота приходят его владельцу, а не вам.")
     rows = []
     if b["status"] == "running":
-        rows.append([B("⏸ Остановить", f"a:hbs:{bid}", style="danger")])
+        rows.append([B("⏸ Остановить", f"a:hbs:{bid}", style="danger"), B("🔄 Перезапустить", f"a:hbrs:{bid}")])
     elif b["status"] in ("stopped", "failed") and b["token"]:
         rows.append([B("▶️ Запустить", f"a:hbr:{bid}", style="success")])
     if b["username"]:
-        rows.append([B(f"🔗 @{b['username']}", url=f"https://t.me/{b['username']}")])
+        rows.append([B(f"🔗 Открыть @{b['username']} (/admin)", url=f"https://t.me/{b['username']}", style="primary")])
+    if os.path.exists(hosting.db_path(bid)):
+        rows.append([B("📊 Статистика", f"a:hbst:{bid}"), B("💾 Скачать базу", f"a:hbdb:{bid}")])
     if b["token"]:
-        rows.append([B("📄 Лог", f"a:hbl:{bid}")])
+        rows.append([B("♻️ Загрузить базу", f"a:hbup:{bid}"), B("📄 Лог", f"a:hbl:{bid}")])
+    rows.append([B("✉️ Написать владельцу", f"a:umsg:{b['user_id']}"), B("👤 Владелец", f"a:tku:{b['user_id']}")])
     rows.append([B("🗑 Удалить", f"a:hbd:{bid}", style="danger")])
     rows.append(back("a:hb", "◀️ К списку"))
     await render(target, text, kb(rows))
+
+
+# ---------- полный доступ к ботам клиентов: статистика, база ----------
+def child_stats(bid):
+    """Статистика бота клиента прямо из его базы (только чтение)."""
+    path = hosting.db_path(bid)
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        def v(sql):
+            try:
+                return con.execute(sql).fetchone()[0]
+            except sqlite3.Error:
+                return 0
+        paid = "status IN ('done','manual')"
+        return {
+            "users": v("SELECT COUNT(*) FROM users"),
+            "users_today": v("SELECT COUNT(*) FROM users WHERE joined >= date('now','localtime')"),
+            "orders": v(f"SELECT COUNT(*) FROM orders WHERE {paid}"),
+            "rev": v(f"SELECT COALESCE(SUM(price),0) FROM orders WHERE {paid}"),
+            "rev_week": v(f"SELECT COALESCE(SUM(price),0) FROM orders WHERE {paid} AND created >= date('now','localtime','-7 days')"),
+            "products": v("SELECT COUNT(*) FROM products"),
+            "stock": v("SELECT COUNT(*) FROM items WHERE sold=0"),
+            "balances": v("SELECT COALESCE(SUM(balance),0) FROM users"),
+            "tickets": v("SELECT COUNT(*) FROM tickets WHERE status='open'"),
+            "topups": v("SELECT COALESCE(SUM(amount),0) FROM topups WHERE status='done'"),
+            "pending": v("SELECT COUNT(*) FROM orders WHERE status='pending'"),
+        }
+    finally:
+        con.close()
+
+
+@admin_router.callback_query(F.data.startswith("a:hbst:"))
+async def cb_hb_stats(call: CallbackQuery):
+    bid = int(call.data.split(":")[2])
+    b = db.hosted(bid)
+    try:
+        s = child_stats(bid)
+    except sqlite3.Error as e:
+        return await call.answer(f"База не читается: {e}", show_alert=True)
+    text = (f"📊 <b>Статистика бота {bot_name(b)}</b>\n<blockquote>"
+            f"👥 Пользователей: <b>{s['users']}</b> (+{s['users_today']} сегодня)\n"
+            f"🛒 Продаж: <b>{s['orders']}</b> на <b>{money(s['rev'])}</b>\n"
+            f"📅 За 7 дней: {money(s['rev_week'])}\n"
+            f"💳 Пополнений: {money(s['topups'])}\n"
+            f"📦 Товаров: {s['products']} · на складе {s['stock']}\n"
+            f"💰 Сумма балансов: {money(s['balances'])}\n"
+            f"🔎 Чеков на проверке: {s['pending']} · 💬 обращений: {s['tickets']}</blockquote>")
+    await render(call, text, kb([[B("🔄 Обновить", f"a:hbst:{bid}")], back(f"a:hbv:{bid}", "◀️ К боту")]))
+    await call.answer()
+
+
+def _child_backup(bid):
+    src = sqlite3.connect(f"file:{hosting.db_path(bid)}?mode=ro", uri=True)
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        dst = sqlite3.connect(path)
+        src.backup(dst)
+        dst.close()
+        with open(path, "rb") as f:
+            return f.read()
+    finally:
+        src.close()
+        os.remove(path)
+
+
+@admin_router.callback_query(F.data.startswith("a:hbdb:"))
+async def cb_hb_db(call: CallbackQuery):
+    bid = int(call.data.split(":")[2])
+    b = db.hosted(bid)
+    try:
+        data = _child_backup(bid)
+    except (sqlite3.Error, OSError) as e:
+        return await call.answer(f"Не удалось: {e}", show_alert=True)
+    name = f"bot_{bid}_{(b['username'] or 'client')}_{db.now()[:10]}.db"
+    await call.message.answer_document(BufferedInputFile(data, name), caption=f"💾 База бота {bot_name(b)}")
+    await call.answer()
+
+
+@admin_router.callback_query(F.data == "a:hbzip")
+async def cb_hb_zip(call: CallbackQuery):
+    await call.answer("Собираю архив…")
+    buf = io.BytesIO()
+    n = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(f"main_{db.now()[:10]}.db", db.backup_bytes())
+        for b in db.hosted_list():
+            if os.path.exists(hosting.db_path(b["id"])):
+                try:
+                    z.writestr(f"bot_{b['id']}_{b['username'] or 'client'}.db", _child_backup(b["id"]))
+                    n += 1
+                except (sqlite3.Error, OSError):
+                    pass
+    await call.message.answer_document(BufferedInputFile(buf.getvalue(), f"all_bots_{db.now()[:10]}.zip"),
+                                       caption=f"📦 Основная база + базы {n} ботов клиентов.")
+
+
+@admin_router.callback_query(F.data.startswith("a:hbrs:"))
+async def cb_hb_restart(call: CallbackQuery):
+    bid = int(call.data.split(":")[2])
+    await call.answer("Перезапускаю…")
+    ok = await hosting.restart(bid)
+    await hb_view(call, bid, "🔄 Бот перезапущен.\n\n" if ok else "⚠️ Бот не запустился — смотрите лог.\n\n")
+
+
+@admin_router.callback_query(F.data.startswith("a:hbup:"))
+async def cb_hb_upload(call: CallbackQuery, state: FSMContext):
+    if not admins.is_owner(call.from_user.id):
+        return await call.answer("Это могут только владельцы.", show_alert=True)
+    bid = int(call.data.split(":")[2])
+    await ask(call, state, "hbup", f"♻️ <b>Замена базы бота #{bid}</b>\n\nОтправьте файл <code>.db</code> документом. "
+                                   "Бот клиента остановится, база заменится, и он запустится снова. "
+                                   "Старую базу я пришлю вам перед заменой.", cancel=f"a:hbv:{bid}", bid=bid)
+
+
+@inp("hbup")
+async def i_hb_upload(m, state, d, txt, bot):
+    bid = d["bid"]
+    if not m.document:
+        return await m.answer("Отправьте файл .db документом:")
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        await bot.download(m.document, destination=path)
+        err = db.check_backup(path)
+        if err:
+            return await m.answer(f"❌ Файл не подходит: {err}. Отправьте другой:")
+        if os.path.exists(hosting.db_path(bid)):
+            await m.answer_document(BufferedInputFile(_child_backup(bid), f"bot_{bid}_before.db"),
+                                    caption="💾 База бота до замены.")
+        was_running = db.hosted(bid)["status"] == "running"
+        await hosting.stop(bid)
+        os.makedirs(os.path.dirname(hosting.db_path(bid)), exist_ok=True)
+        dst = sqlite3.connect(hosting.db_path(bid))
+        src = sqlite3.connect(path)
+        src.backup(dst)
+        src.close()
+        dst.close()
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    await state.clear()
+    ok = await hosting.launch(bid) if was_running else None
+    note = "✅ База заменена" + (", бот запущен." if ok else ", но бот не запустился — смотрите лог." if was_running else ".")
+    await hb_view(m, bid, note + "\n\n")
 
 
 @admin_router.callback_query(F.data == "a:hbbc")
