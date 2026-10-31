@@ -23,8 +23,15 @@ async def main():
     if not config.BOT_TOKEN:
         raise SystemExit("Не задан токен бота: добавьте переменную окружения BOT_TOKEN (на хостинге) "
                          "или файл .env со строкой BOT_TOKEN=ваш_токен")
-    db.init()
     bot = Bot(config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True))
+    if config.CHILD:
+        # вторая проверка (первая — в config.py): Telegram подтверждает, что это именно бот клиента
+        me = await bot.get_me()
+        if me.id != config.EXPECT_BOT_ID or me.id == config.MAIN_BOT_ID:
+            await bot.session.close()
+            logging.error("ОСТАНОВЛЕН: токен принадлежит @%s, а не боту клиента", me.username)
+            raise SystemExit(config.EXIT_IDENTITY)
+    db.init()
     dp = Dispatcher()
     mw = UserMiddleware()
     dp.message.outer_middleware(mw)

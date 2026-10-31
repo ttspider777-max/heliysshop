@@ -559,5 +559,9 @@ async def cb_hb_del2(call: CallbackQuery):
     bid = int(call.data.split(":")[2])
     db.set_hosted(bid, status="deleted")
     await hosting.stop(bid)
+    try:
+        os.remove(hosting.cfg_path(bid))  # в файле токен бота клиента
+    except OSError:
+        pass
     await hb_list(call, f"🗑 Бот #{bid} удалён.\n\n")
     await call.answer("Удалён")

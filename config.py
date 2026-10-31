@@ -1,4 +1,8 @@
+import json
 import os
+import re
+import sys
+
 
 def _load_env(path):
     """Читает файл .env (KEY=VALUE), если он есть. Переменные окружения хостинга имеют приоритет."""
@@ -13,34 +17,76 @@ def _load_env(path):
         pass
 
 
-# CHILD_BOT=1 — это бот клиента, запущенный через «🤖 Создать своего бота» (см. hosting.py).
-# Такой бот получает токен, владельца и базу из переменных окружения и не читает .env основного бота.
-CHILD = os.getenv("CHILD_BOT") == "1"
+_BASE = os.path.dirname(os.path.abspath(__file__))
+
+# Бот клиента («🤖 Создать своего бота», см. hosting.py) запускается как `python main.py --child <файл.json>`.
+# Все его настройки (токен, владелец, база, порт) берутся ТОЛЬКО из этого файла, а не из переменных окружения:
+# хостинг (BotHost) подставляет свои переменные BOT_TOKEN / DB_PATH в каждый процесс, и бот клиента запускался
+# с токеном и базой основного бота — клиент становился владельцем основного бота.
+EXIT_IDENTITY = 3  # код выхода: бот клиента получил чужой токен или базу (hosting.py сразу останавливает его)
+
+
+def _identity_fail(msg):
+    print(f"ОСТАНОВЛЕН: {msg}", file=sys.stderr, flush=True)
+    sys.exit(EXIT_IDENTITY)
+
+
+def _child_cfg():
+    if "--child" not in sys.argv:
+        return None
+    i = sys.argv.index("--child")
+    try:
+        with open(sys.argv[i + 1], encoding="utf-8") as f:
+            return json.load(f)
+    except (IndexError, OSError, ValueError) as e:
+        _identity_fail(f"не прочитан файл настроек бота клиента: {e}")
+
+
+_CHILD_CFG = _child_cfg()
+CHILD = _CHILD_CFG is not None
 
 if not CHILD:
-    _load_env(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+    _load_env(os.path.join(_BASE, ".env"))
 
-# Токен бота: переменная окружения BOT_TOKEN на хостинге или строка BOT_TOKEN=... в файле .env.
-# В коде токен не хранится, чтобы он не утёк вместе с репозиторием на GitHub.
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-
-# Администраторы бота (у бота клиента — его владелец)
 if CHILD:
-    ADMINS = {int(x) for x in os.getenv("OWNER_IDS", "").split(",") if x.strip().isdigit()}
+    c = _CHILD_CFG
+    BOT_TOKEN = str(c.get("token") or "")
+    ADMINS = {int(c["owner"])} if str(c.get("owner", "")).isdigit() else set()
+    # Владельцы основного бота: в ботах клиентов у них полный доступ к админке (/admin),
+    # но чеки и уведомления этих ботов им не приходят — их получает владелец бота.
+    SUPER_ADMINS = {int(x) for x in c.get("supers") or [] if str(x).isdigit()}
+    DB_PATH = str(c.get("db") or "")
+    SHOP_NAME = str(c.get("shop_name") or "shop")
+    WEB_PORT = int(c.get("port") or 0)
+    PUBLIC_URL = str(c.get("public_url") or "")
+    EXPECT_BOT_ID = int(c.get("tg_id") or 0)
+    MAIN_BOT_ID = int(c.get("main_bot_id") or 0)
+    # защита: бот клиента работает только со своим токеном и своей базой
+    _tok_id = BOT_TOKEN.split(":", 1)[0]
+    if not _tok_id.isdigit() or int(_tok_id) != EXPECT_BOT_ID or int(_tok_id) == MAIN_BOT_ID:
+        _identity_fail("токен не принадлежит боту клиента")
+    if (not re.fullmatch(r"bot_\d+\.db", os.path.basename(DB_PATH))
+            or os.path.realpath(DB_PATH) == os.path.realpath(str(c.get("main_db") or ""))):
+        _identity_fail("бот клиента получил чужую базу")
+    if not ADMINS:
+        _identity_fail("не указан владелец бота клиента")
+    if not WEB_PORT:
+        _identity_fail("не указан порт бота клиента")
 else:
+    # Токен бота: переменная окружения BOT_TOKEN на хостинге или строка BOT_TOKEN=... в файле .env.
+    # В коде токен не хранится, чтобы он не утёк вместе с репозиторием на GitHub.
+    BOT_TOKEN = os.getenv("BOT_TOKEN", "")
     ADMINS = {1867178992, 8717087613}
+    SUPER_ADMINS = set()
+    # База данных: папка data рядом с ботом (или /data, если хостинг даёт постоянное хранилище; путь — DB_PATH)
+    DB_PATH = os.getenv("DB_PATH") or (
+        "/data/heliys_shop.db" if os.path.isdir("/data") else os.path.join(_BASE, "data", "heliys_shop.db")
+    )
+    SHOP_NAME = "heliys shop"
+    WEB_PORT = int(os.getenv("PORT") or 8080)
+    PUBLIC_URL = os.getenv("PUBLIC_URL") or os.getenv("WEBAPP_URL") or ""  # например https://bot-xxx.bothost.tech
+    EXPECT_BOT_ID = MAIN_BOT_ID = 0
 
-# Владельцы основного бота: в ботах клиентов у них полный доступ к админке (/admin),
-# но чеки и уведомления этих ботов им не приходят — их получает владелец бота.
-SUPER_ADMINS = {int(x) for x in os.getenv("SUPER_ADMINS", "").split(",") if x.strip().isdigit()} if CHILD else set()
-
-# База данных: папка data рядом с ботом (или /data, если хостинг даёт постоянное хранилище; путь можно задать DB_PATH)
-_BASE = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.getenv("DB_PATH") or (
-    "/data/heliys_shop.db" if os.path.isdir("/data") else os.path.join(_BASE, "data", "heliys_shop.db")
-)
-
-SHOP_NAME = (os.getenv("SHOP_NAME") or "shop") if CHILD else "heliys shop"
 SHOP_TITLE = SHOP_NAME if CHILD else "heliys 𝗌𝗁𝗈𝗉"  # заголовок в приветствии
 
 # Встроенный сайт: мини-приложение (/app) и документы (/privacy, /terms).
@@ -48,9 +94,7 @@ SHOP_TITLE = SHOP_NAME if CHILD else "heliys 𝗌𝗁𝗈𝗉"  # заголов
 # он должен совпадать с полем «Порт» в панели). Выданный https-адрес вставьте в /admin → 🎨 Мини-приложение →
 # 🌐 Адрес сайта (или в переменную PUBLIC_URL / WEBAPP_URL).
 # Бот клиента слушает свой внутренний порт, а наружу его выводит основной бот по адресу <сайт>/b/<номер>.
-WEB_PORT = int(os.getenv("PORT") or 8080)
 WEB_HOST = "127.0.0.1" if CHILD else "0.0.0.0"
-PUBLIC_URL = os.getenv("PUBLIC_URL") or os.getenv("WEBAPP_URL") or ""  # например https://bot-xxx.bothost.tech
 
 # Значения по умолчанию (всё меняется в админ-панели → ⚙️ Настройки).
 # У ботов клиентов ссылки и реквизиты пустые — владелец указывает свои.

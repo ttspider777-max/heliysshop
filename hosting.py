@@ -7,6 +7,7 @@ data/bots/bot_<id>.db. Основной бот следит за процесс�
 После перезапуска сервера все боты со статусом running поднимаются автоматически.
 """
 import asyncio
+import json
 import logging
 import os
 import re
@@ -85,23 +86,43 @@ def child_port(bid):
     return PORT_BASE + int(bid)
 
 
-def _env(b):
+def cfg_path(bid):
+    return os.path.join(BOTS_DIR, f"bot_{bid}.json")
+
+
+def _write_cfg(b):
+    """Настройки бота клиента — в отдельный файл (передаётся как `main.py --child <файл>`).
+    Через переменные окружения их передавать нельзя: хостинг подменяет BOT_TOKEN / DB_PATH в дочерних процессах,
+    и бот клиента запускался с токеном и базой основного бота."""
     import appcfg
-    drop = {"BOT_TOKEN", "DB_PATH", "OWNER_IDS", "SHOP_NAME", "PUBLIC_URL", "PORT", "CHILD_BOT", "SUPER_ADMINS"}
-    env = {k: v for k, v in os.environ.items() if k not in drop}
     base = appcfg.public_url()
-    env.update(
-        CHILD_BOT="1",
-        BOT_TOKEN=b["token"],
-        DB_PATH=db_path(b["id"]),
-        OWNER_IDS=str(b["user_id"]),
-        SUPER_ADMINS=",".join(str(i) for i in sorted(config.ADMINS)),  # владельцы основного бота — полный доступ
-        SHOP_NAME=b["shop_name"] or b["username"] or "shop",
-        PORT=str(child_port(b["id"])),
-        PUBLIC_URL=f"{base}/b/{b['id']}" if base else "",
-        PYTHONUNBUFFERED="1",
-        PYTHONIOENCODING="utf-8",
-    )
+    cfg = {
+        "token": b["token"],
+        "tg_id": b["tg_id"],
+        "owner": b["user_id"],
+        "supers": sorted(config.ADMINS),  # владельцы основного бота — полный доступ в боте клиента
+        "db": db_path(b["id"]),
+        "main_db": config.DB_PATH,
+        "main_bot_id": int(config.BOT_TOKEN.split(":", 1)[0]),
+        "shop_name": b["shop_name"] or b["username"] or "shop",
+        "port": child_port(b["id"]),
+        "public_url": f"{base}/b/{b['id']}" if base else "",
+    }
+    path = cfg_path(b["id"])
+    fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(cfg, f)
+    os.replace(path + ".tmp", path)
+    return path
+
+
+def _env():
+    # настройки основного бота детям не передаём (на случай, если хостинг их всё же подставит — бот клиента
+    # их игнорирует и проверяет свой токен и базу, см. config.py)
+    drop = {"BOT_TOKEN", "DB_PATH", "OWNER_IDS", "SHOP_NAME", "PUBLIC_URL", "WEBAPP_URL", "PORT", "CHILD_BOT",
+            "SUPER_ADMINS"}
+    env = {k: v for k, v in os.environ.items() if k not in drop}
+    env.update(PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8")
     return env
 
 
@@ -149,7 +170,7 @@ async def _run(bid):
             started = time.monotonic()
             with open(lp, "ab") as logf:
                 proc = await asyncio.create_subprocess_exec(
-                    sys.executable, MAIN, cwd=ROOT, env=_env(b),
+                    sys.executable, MAIN, "--child", _write_cfg(b), cwd=ROOT, env=_env(),
                     stdin=asyncio.subprocess.DEVNULL, stdout=logf, stderr=asyncio.subprocess.STDOUT)
                 _procs[bid] = proc
                 log.info("бот клиента #%s (@%s) запущен, pid %s", bid, b["username"], proc.pid)
@@ -164,7 +185,12 @@ async def _run(bid):
             b = db.hosted(bid)
             if not b or b["status"] != "running":
                 return
-            fails = fails + 1 if time.monotonic() - started < QUICK_FAIL else 1
+            if rc == config.EXIT_IDENTITY:  # бот получил чужой токен или базу — не перезапускаем
+                log.error("бот клиента #%s остановлен защитой: чужой токен или база", bid)
+                db.set_hosted(bid, status="failed")
+                await _on_failed(db.hosted(bid), identity=True)
+                return
+            fails =fails + 1 if time.monotonic() - started < QUICK_FAIL else 1
             log.warning("бот клиента #%s завершился с кодом %s (падение %s/%s)", bid, rc, fails, MAX_FAILS)
             if fails >= MAX_FAILS:
                 db.set_hosted(bid, status="failed")
@@ -176,11 +202,14 @@ async def _run(bid):
             _tasks.pop(bid, None)
 
 
-async def _on_failed(b):
+async def _on_failed(b, identity=False):
     from services import safe_send, to_admins  # здесь, чтобы не было циклического импорта
     from texts import t
     if _bot is None or b is None:
         return
+    if identity:
+        return await to_admins(_bot, f"🛑 Бот клиента #{b['id']} (@{b['username']}) остановлен защитой: он запустился "
+                                     f"не со своим токеном или базой. Лог: <code>{log_path(b['id'])}</code>")
     u = db.get_user(b["user_id"])
     await safe_send(_bot, b["user_id"], t("mb_failed", u["lang"] if u else "ru", username=b["username"] or "?"))
     await to_admins(_bot, f"⚠️ Бот клиента #{b['id']} (@{b['username']}) постоянно падает и остановлен.\n"
