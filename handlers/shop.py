@@ -61,19 +61,20 @@ async def cb_catalog(call: CallbackQuery, state: FSMContext, lang: str):
     await call.answer()
 
 
-def product_label(p):
-    mark = ""
-    if p["old_price"] and p["old_price"] > p["price"]:
-        mark = "🏷 "
-    if not db.unlimited(p) and db.stock(p["id"]) == 0:
-        mark = "❌ "
-    return f"{mark}{p['name']} — {money(p['price'])}"
+def product_label(p, lang="ru"):
+    if not in_stock(p):  # нет в наличии: кнопка красная, вместо цены — надпись
+        return f"🔴 {p['name']} — {t('out_short', lang)}"
+    mark = "🏷 " if p["old_price"] and p["old_price"] > p["price"] else ""
+    each = t("per_item", lang) if p["min_qty"] else ""
+    return f"{mark}{p['name']} — {money(p['price'])}{each}"
 
 
-def product_btn(p, cb):
-    """Кнопка товара в списке; премиум-эмодзи товара ставится иконкой слева."""
+def product_btn(p, cb, lang="ru"):
+    """Кнопка товара в списке; премиум-эмодзи товара ставится иконкой слева, товар не в наличии — красный."""
     kw = {"icon_custom_emoji_id": p["emoji_id"]} if p["emoji_id"] else {}
-    return InlineKeyboardButton(text=product_label(p), callback_data=cb, **kw)
+    if not in_stock(p):
+        kw["style"] = "danger"
+    return InlineKeyboardButton(text=product_label(p, lang), callback_data=cb, **kw)
 
 
 def name_html(p):
@@ -83,8 +84,21 @@ def name_html(p):
 
 
 def is_multi(p):
+    """Покупатель выбирает количество: включено у товара (🔢 по количеству) или у всей категории."""
+    if p["min_qty"]:
+        return True
     c = db.category(p["category_id"])
     return bool(c and c["multi"])
+
+
+def min_qty(p):
+    """Минимум штук в одном заказе (по умолчанию 1)."""
+    return max(1, int(p["min_qty"] or 0))
+
+
+def stars_ok(p):
+    """Можно ли платить за товар звёздами (админ может выключить у конкретного товара)."""
+    return not p["no_stars"]
 
 
 def max_qty(p):
@@ -102,7 +116,7 @@ async def show_list(target, kind, page, uid, lang, query=None):
         title += t("list_empty", lang)
     pages = max(1, (len(items) + PER_PAGE - 1) // PER_PAGE)
     page = min(max(page, 0), pages - 1)
-    rows = [[product_btn(p, f"p:{p['id']}:{kind}")]
+    rows = [[product_btn(p, f"p:{p['id']}:{kind}", lang)]
             for p in items[page * PER_PAGE:(page + 1) * PER_PAGE]]
     rows.append(pager(f"l:{kind}:", page, pages))
     back = "profile" if kind == "pfav" else "menu" if kind == f"c{db.suppliers_cid()}" else "cat"
@@ -144,22 +158,27 @@ def product_text(p, lang, u):
         pct = round((1 - p["price"] / p["old_price"]) * 100)
         lines.append(t("price_disc", lang, old=money(p["old_price"]), price=money(p["price"]), pct=pct))
     else:
-        lines.append(t("price", lang, price=money(p["price"])))
+        lines.append(t("price", lang, price=money(p["price"])) + (t("per_item", lang) if p["min_qty"] else ""))
     if u["promo_percent"]:
         fp, _, code = final_price(u, p["price"])
         lines.append(t("promo_applied", lang, code=html.escape(code), price=money(fp)))
-    if db.unlimited(p):
+    if not in_stock(p):
+        lines.append(t("stock_out", lang))
+    elif db.unlimited(p):
         lines.append(t("stock_manual", lang))
     else:
-        n = db.stock(p["id"])
-        lines.append(t("stock", lang, n=n) if n else t("stock_out", lang))
+        lines.append(t("stock", lang, n=db.stock(p["id"])))
     if is_multi(p) and in_stock(p):
-        lines.append(t("multi_hint", lang))
+        mn = min_qty(p)
+        lines.append(t("min_hint", lang, min=mn) if mn > 1 else t("multi_hint", lang))
     return "\n".join(lines)
 
 
 def in_stock(p):
-    return db.unlimited(p) or db.stock(p["id"]) > 0
+    """Можно ли купить хотя бы минимальное количество: не помечен «нет в наличии» и хватает склада."""
+    if p["soldout"]:
+        return False
+    return db.unlimited(p) or db.stock(p["id"]) >= min_qty(p)
 
 
 CAPTION_MAX = 1024  # лимит Telegram на подпись к фото
@@ -240,17 +259,19 @@ def total_price(u, p, qty):
 def qty_text(p, u, qty, lang):
     total, _, _ = total_price(u, p, qty)
     avail = t("qty_avail_manual", lang) if db.unlimited(p) else t("qty_avail_n", lang, n=db.stock(p["id"]))
-    return t("qty_title", lang, name=name_html(p), price=money(p["price"]), avail=avail, qty=qty, total=money(total))
+    text = t("qty_title", lang, name=name_html(p), price=money(p["price"]), avail=avail, qty=qty, total=money(total))
+    mn = min_qty(p)
+    return text + ("\n" + t("min_hint", lang, min=mn) if mn > 1 else "")
 
 
 async def show_qty(call: CallbackQuery, p, kind, qty, lang):
     u = db.get_user(call.from_user.id)
-    top = max_qty(p)
-    qty = min(max(qty, 1), top)
+    top, mn = max_qty(p), min_qty(p)
+    qty = min(max(qty, mn), top)
     pid = p["id"]
 
     def step(label, n):
-        return InlineKeyboardButton(text=label, callback_data=f"qty:{pid}:{kind}:{min(max(n, 1), top)}")
+        return InlineKeyboardButton(text=label, callback_data=f"qty:{pid}:{kind}:{min(max(n, mn), top)}")
 
     big = []  # крупные шаги — только если можно взять столько штук
     if top > 100:
@@ -274,9 +295,10 @@ async def show_checkout(call: CallbackQuery, p, kind, qty, lang):
     total, _, _ = total_price(u, p, qty)
     name = html.escape(p["name"]) + (f" × {qty}" if qty > 1 else "")
     back_cb = f"qty:{p['id']}:{kind}:{qty}" if is_multi(p) else f"p:{p['id']}:{kind}"
+    stars_row = [btn("pay_stars", lang, f"pz:{p['id']}:{qty}")] if stars_ok(p) else []
     await render(call, t("choose_pay", lang, name=name, price=money(total), balance=money(u["balance"])), kb([
         [btn("pay_balance", lang, f"pb:{p['id']}:{qty}"), btn("pay_sbp", lang, f"ps:{p['id']}:{qty}")],
-        [btn("pay_stars", lang, f"pz:{p['id']}:{qty}")],
+        stars_row,
         legal_row(lang),
         [btn("back", lang, back_cb), btn("main_menu", lang, "menu")],
     ]))
@@ -288,24 +310,26 @@ def check_buyable(p, qty):
         return "not_found"
     if not in_stock(p) or qty > max_qty(p):
         return "out_alert"
+    if qty < min_qty(p):
+        return "qty_low"
     return None
 
 
 async def reject_buy(call: CallbackQuery, p, kind, err, lang):
     if err == "out_alert":
         await show_product(call, p["id"], kind, lang)
-    await call.answer(t(err, lang), show_alert=True)
+    await call.answer(t(err, lang, min=min_qty(p)) if p else t(err, lang), show_alert=True)
 
 
 @router.callback_query(F.data.startswith("buy:"))
 async def cb_buy(call: CallbackQuery, lang: str):
     _, pid, kind, _q = parse_cb(call.data, 4)
     p = db.product(int(pid))
-    err = check_buyable(p, 1)
+    err = check_buyable(p, min_qty(p) if p else 1)
     if err:
         return await reject_buy(call, p, kind, err, lang)
     if is_multi(p):
-        await show_qty(call, p, kind, 1, lang)
+        await show_qty(call, p, kind, min_qty(p), lang)
     else:
         await show_checkout(call, p, kind, 1, lang)
     await call.answer()
@@ -316,24 +340,30 @@ async def cb_qty(call: CallbackQuery, state: FSMContext, lang: str):
     await state.set_state(None)
     _, pid, kind, n = parse_cb(call.data, 4)
     p = db.product(int(pid))
-    err = check_buyable(p, 1)
+    err = check_buyable(p, min_qty(p) if p else 1)
     if err:
         return await reject_buy(call, p, kind, err, lang)
     want = int(n or 1)
     got = await show_qty(call, p, kind, want, lang)
-    await call.answer(t("qty_max", lang, max=got) if want > got else None)
+    if want > got:
+        await call.answer(t("qty_max", lang, max=got))
+    elif want < got:
+        await call.answer(t("qty_min", lang, min=got))
+    else:
+        await call.answer()
 
 
 @router.callback_query(F.data.startswith("qtyin:"))
 async def cb_qty_input(call: CallbackQuery, state: FSMContext, lang: str):
     _, pid, kind = parse_cb(call.data, 3)
     p = db.product(int(pid))
-    err = check_buyable(p, 1)
+    err = check_buyable(p, min_qty(p) if p else 1)
     if err:
         return await reject_buy(call, p, kind, err, lang)
     await state.set_state(ShopSt.qty)
     await state.update_data(qty_pid=p["id"], qty_kind=kind)
-    await render(call, t("qty_prompt", lang, max=max_qty(p)), kb([[btn("cancel", lang, f"qty:{p['id']}:{kind}:1")]]))
+    await render(call, t("qty_prompt", lang, min=min_qty(p), max=max_qty(p)),
+                 kb([[btn("cancel", lang, f"qty:{p['id']}:{kind}:{min_qty(p)}")]]))
     await call.answer()
 
 
@@ -342,14 +372,14 @@ async def msg_qty(m: Message, state: FSMContext, lang: str):
     d = await state.get_data()
     p = db.product(d.get("qty_pid") or 0)
     kind = d.get("qty_kind", "new")
-    err = check_buyable(p, 1)
+    err = check_buyable(p, min_qty(p) if p else 1)
     if err:
         await state.set_state(None)
         return await m.answer(t(err, lang), reply_markup=kb([menu_row(lang)]))
-    top = max_qty(p)
-    txt = m.text.strip()
-    if not txt.isdigit() or not 1 <= int(txt) <= top:
-        return await m.answer(t("qty_bad", lang, max=top))
+    top, mn = max_qty(p), min_qty(p)
+    txt = m.text.strip().replace(" ", "")
+    if not txt.isdigit() or not mn <= int(txt) <= top:
+        return await m.answer(t("qty_bad", lang, min=mn, max=top))
     await state.set_state(None)
     qty = int(txt)
     await m.answer(qty_text(p, db.get_user(m.from_user.id), qty, lang), reply_markup=kb([
@@ -378,7 +408,7 @@ async def cb_pay_balance(call: CallbackQuery, lang: str, bot: Bot):
     p = db.product(int(pid))
     err = check_buyable(p, qty)
     if err:
-        return await call.answer(t(err, lang), show_alert=True)
+        return await call.answer(t(err, lang, min=min_qty(p)) if p else t(err, lang), show_alert=True)
     db.release_promo_orders(call.from_user.id)
     u = db.get_user(call.from_user.id)
     price, _, code = total_price(u, p, qty)
@@ -400,7 +430,7 @@ async def cb_pay_sbp(call: CallbackQuery, lang: str):
     p = db.product(int(pid))
     err = check_buyable(p, qty)
     if err:
-        return await call.answer(t(err, lang), show_alert=True)
+        return await call.answer(t(err, lang, min=min_qty(p)) if p else t(err, lang), show_alert=True)
     db.release_promo_orders(call.from_user.id)
     u = db.get_user(call.from_user.id)
     price, _, code = total_price(u, p, qty)
@@ -432,7 +462,9 @@ async def cb_pay_stars(call: CallbackQuery, lang: str):
     p = db.product(int(pid))
     err = check_buyable(p, qty)
     if err:
-        return await call.answer(t(err, lang), show_alert=True)
+        return await call.answer(t(err, lang, min=min_qty(p)) if p else t(err, lang), show_alert=True)
+    if not stars_ok(p):
+        return await call.answer(t("stars_off", lang), show_alert=True)
     db.release_promo_orders(call.from_user.id)
     u = db.get_user(call.from_user.id)
     price, _, code = total_price(u, p, qty)

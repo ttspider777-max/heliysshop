@@ -171,8 +171,17 @@ a { color: var(--accent); }
 .price { font: 600 15px var(--display); font-variant-numeric: tabular-nums; }
 .price s { color: var(--muted); font: 500 12.5px var(--font); margin-left: 6px; }
 .tag { position: absolute; top: 8px; left: 8px; padding: 3px 7px; border-radius: 7px; font-size: 11.5px; font-weight: 800; background: var(--accent); color: var(--accent-ink); }
-.tag.out { background: rgba(0,0,0,.72); color: #fff; }
+.tag.out { background: #e5484d; color: #fff; }
 .prod .stock { font-size: 12px; color: var(--muted); margin-top: auto; }
+/* товар не в наличии — красная рамка и надпись, фото приглушено */
+.prod.out { border-color: rgba(229,72,77,.6); box-shadow: inset 0 0 0 1px rgba(229,72,77,.35); }
+.prod.out .pm img, .prod.out .pm video { filter: grayscale(.7); opacity: .6; }
+.prod.out .price { color: var(--muted); }
+.prod.out .stock { color: #ff5a5f; font-weight: 700; }
+.pmedia.out img, .pmedia.out video { filter: grayscale(.7); opacity: .6; }
+.big-price.out { color: var(--muted); }
+.minq { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+.prod .price small { color: var(--muted); font: 500 12px var(--font); }
 
 /* ---------- товар ---------- */
 .topbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; min-height: 40px; }
@@ -198,7 +207,7 @@ a { color: var(--accent); }
 .qty { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
 .qty button { width: 44px; height: 44px; border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line); display: grid; place-items: center; }
 .qty input { width: 72px; height: 44px; text-align: center; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--surface-2); font: 600 16px var(--display); outline: 0; }
-.qty .total { margin-left: auto; text-align: right; }
+.qty .total { margin-left: auto; text-align: right; white-space: nowrap; }
 .qty .total span { display: block; font-size: 12px; color: var(--muted); }
 .buybar { position: sticky; bottom: calc(76px + var(--safe-b)); margin-top: 12px; display: flex; gap: 10px; z-index: 5; }
 .buybar .btn { flex: 1; height: 54px; font-size: 16px; }
@@ -703,12 +712,13 @@ function listTitle(kind) {
 }
 function prodCard(p) {
   const m = p.media ? (p.media.type === "photo" ? `<img src="${mediaUrl(p.media)}" alt="" loading="lazy">` : `<video src="${mediaUrl(p.media)}" autoplay loop muted playsinline></video>`) : (p.emoji_id ? pe(p.emoji_id, firstEmoji(p.name) || "") : (firstEmoji(p.name) ? esc(firstEmoji(p.name)) : svg("bag")));
-  const out = p.stock === 0;
+  const out = p.out || p.stock === 0;
   const pct = p.old_price ? Math.round((1 - p.price / p.old_price) * 100) : 0;
   const tag = out ? `<span class="tag out">${T("app_out")}</span>` : pct ? `<span class="tag">−${pct}%</span>` : "";
-  const stock = p.stock < 0 ? T("app_in_stock") : out ? "" : `${T("app_in_stock")}: ${p.stock}`;
-  return `<button class="prod" data-prod="${p.id}"><div class="pm">${m}${tag}</div><div class="pi">
-    <div class="pn">${esc(stripEmoji(p.name))}</div><div class="price">${money(p.price)}${p.old_price ? `<s>${money(p.old_price)}</s>` : ""}</div>
+  const stock = out ? T("app_out") : p.stock < 0 ? T("app_in_stock") : `${T("app_in_stock")}: ${p.stock}`;
+  const each = p.by_qty ? `<small> / ${L("шт.", "pc.")}</small>` : "";
+  return `<button class="prod${out ? " out" : ""}" data-prod="${p.id}"><div class="pm">${m}${tag}</div><div class="pi">
+    <div class="pn">${esc(stripEmoji(p.name))}</div><div class="price">${money(p.price)}${each}${p.old_price ? `<s>${money(p.old_price)}</s>` : ""}</div>
     <div class="stock">${stock}</div></div></button>`;
 }
 async function renderList(kind) {
@@ -732,34 +742,39 @@ async function renderProduct(pid) {
   el.innerHTML = `<div class="topbar"><button class="iconbtn" data-act="back" aria-label="back">${svg("left")}</button><h2></h2></div><div class="skeleton" style="aspect-ratio:4/3"></div><div class="skeleton" style="height:180px;margin-top:14px"></div>`;
   let p;
   try { p = (await api("product/" + pid)).product; } catch (e) { toast(e.message || "Ошибка"); return; }
-  S.product = p; S.qty = 1;
+  const minQ = Math.max(1, p.min_qty || 1);
+  S.product = p; S.qty = p.multi ? minQ : 1;
+  const startTotal = money(Math.round((p.promo_price || p.price) * S.qty * 100) / 100);
   const media = p.media ? (p.media.type === "photo" ? `<img src="${mediaUrl(p.media)}" alt="">` : `<video src="${mediaUrl(p.media)}" autoplay loop muted playsinline controls></video>`)
     : (p.emoji_id ? pe(p.emoji_id, firstEmoji(p.name) || "") : (firstEmoji(p.name) ? esc(firstEmoji(p.name)) : svg("bag")));
-  const out = p.stock === 0;
+  const out = p.out || p.stock === 0;
   const stockPill = out ? `<span class="pill no"><span class="dot"></span>${T("app_out")}</span>` : `<span class="pill ok"><span class="dot"></span>${T("app_in_stock")}${p.stock > 0 ? ": " + p.stock : ""}</span>`;
-  const qty = p.multi && !out ? `<div class="qty"><button data-q="-1" aria-label="minus">${svg("minus")}</button><input id="qty" inputmode="numeric" value="1"><button data-q="1" aria-label="plus">${svg("plus")}</button>
-    <div class="total"><span>${L("Итого", "Total")}</span><b class="price" id="total">${money(p.promo_price || p.price)}</b></div></div>` : "";
+  const big = p.by_qty || minQ > 1;  // по количеству — крупные шаги ±10
+  const qty = p.multi && !out ? `<div class="qty">${big ? `<button data-q="-10" aria-label="minus 10" style="width:auto;padding:0 10px">−10</button>` : ""}<button data-q="-1" aria-label="minus">${svg("minus")}</button><input id="qty" inputmode="numeric" value="${S.qty}"><button data-q="1" aria-label="plus">${svg("plus")}</button>${big ? `<button data-q="10" aria-label="plus 10" style="width:auto;padding:0 10px">+10</button>` : ""}
+    <div class="total"><span>${L("Итого", "Total")}</span><b class="price" id="total">${startTotal}</b></div></div>
+    ${minQ > 1 ? `<div class="minq">${L("Минимум", "Minimum")} — ${minQ} ${L("шт.", "pcs.")} · ${money(p.promo_price || p.price)} ${L("за 1 шт.", "per pc.")}</div>` : ""}` : "";
   el.innerHTML = `<div class="topbar"><button class="iconbtn" data-act="back" aria-label="back">${svg("left")}</button><h2>${esc(p.cat_name ? stripEmoji(p.cat_name) : "")}</h2>
       ${isAdmin() ? `<button class="iconbtn" data-act="edit-prod" aria-label="edit">${svg("pencil")}</button>` : ""}
       <button class="iconbtn ${p.fav ? "on" : ""}" data-act="fav" aria-label="fav">${svg("heart")}</button></div>
     ${isAdmin() && p.active === false ? `<div class="pill no" style="margin-bottom:10px">${svg("eyeoff", "sm")} ${L("Скрыт от покупателей", "Hidden from customers")}</div>` : ""}
-    <div class="pmedia">${media}</div>
+    <div class="pmedia${out ? " out" : ""}">${media}</div>
     <div class="card pbody">
       <h1>${p.emoji_id ? pe(p.emoji_id, "") + " " : ""}${esc(p.emoji_id ? stripEmoji(p.name) : p.name)}</h1>
-      <div class="prow"><div class="big-price">${money(p.price)}${p.old_price ? `<s>${money(p.old_price)}</s>` : ""}</div>${stockPill}</div>
+      <div class="prow"><div class="big-price${out ? " out" : ""}">${money(p.price)}${p.by_qty ? `<small style="font-size:.55em;color:var(--muted)"> / ${L("шт.", "pc.")}</small>` : ""}${p.old_price ? `<s>${money(p.old_price)}</s>` : ""}</div>${stockPill}</div>
       ${p.promo_pct ? `<div class="pill" style="margin-top:10px">${svg("ticket", "sm")} −${p.promo_pct}% → <b>${money(p.promo_price)}</b></div>` : ""}
       ${qty}
       ${p.description ? `<div class="desc rich">${p.description}</div>` : ""}
     </div>
-    <div class="buybar">${out ? `<button class="btn ghost" data-act="notify">${svg("bell", "sm")} ${T("app_notify")}</button>` : `<button class="btn" data-act="buy">${T("app_buy")} · <span id="buyTotal">${money(p.promo_price || p.price)}</span></button>`}</div>`;
+    <div class="buybar">${out ? `<button class="btn ghost" data-act="notify">${svg("bell", "sm")} ${T("app_notify")}</button>` : `<button class="btn" data-act="buy">${T("app_buy")} · <span id="buyTotal">${startTotal}</span></button>`}</div>`;
   hydrateEmoji(el);
   el.querySelectorAll(".tg-spoiler").forEach((s) => s.addEventListener("click", () => s.classList.add("open")));
 }
 function unitPrice() { const p = S.product; return p.promo_price || p.price; }
-function setQty(n) {
-  const p = S.product; const max = Math.max(1, p.max_qty || 1);
-  S.qty = Math.min(Math.max(1, n | 0), max);
-  const inp = $("#qty"); if (inp) inp.value = S.qty;
+function setQty(n, typing) {
+  const p = S.product; const min = Math.max(1, p.min_qty || 1); const max = Math.max(min, p.max_qty || 1);
+  S.qty = Math.min(Math.max(min, n | 0), max);
+  // пока покупатель печатает число меньше минимума, поле не трогаем — поправим, когда закончит ввод
+  const inp = $("#qty"); if (inp && !(typing && (n | 0) < min)) inp.value = S.qty;
   const tot = Math.round(unitPrice() * S.qty * 100) / 100;
   if ($("#total")) $("#total").textContent = money(tot);
   if ($("#buyTotal")) $("#buyTotal").textContent = money(tot);
@@ -771,7 +786,7 @@ function openPay() {
   const enough = bal >= total;
   sheet(`<h3>${esc(stripEmoji(p.name))}${S.qty > 1 ? " × " + S.qty : ""}</h3><p>${L("К оплате", "To pay")}: <b style="color:var(--text)">${money(total)}</b></p>
     ${pay.balance ? `<button class="pay" data-pay="balance"><span class="pi2">${svg("wallet")}</span><span><b>${T("app_pay_balance")}</b><span>${L("На балансе", "Balance")}: ${money(bal)}</span></span><span class="rt2">${enough ? money(total) : `<span class="btn sm" data-act="topup">${L("Пополнить", "Top up")}</span>`}</span></button>` : ""}
-    ${pay.stars ? `<button class="pay" data-pay="stars"><span class="pi2">${svg("star")}</span><span><b>${T("app_pay_stars")}</b><span>Telegram Stars</span></span><span class="rt2">${stars(total)} ${svg("star", "sm")}</span></button>` : ""}
+    ${pay.stars && p.stars !== false ? `<button class="pay" data-pay="stars"><span class="pi2">${svg("star")}</span><span><b>${T("app_pay_stars")}</b><span>Telegram Stars</span></span><span class="rt2">${stars(total)} ${svg("star", "sm")}</span></button>` : ""}
     ${pay.sbp ? `<button class="pay" data-pay="sbp"><span class="pi2">${svg("bank")}</span><span><b>${T("app_pay_sbp")}</b><span>${L("Реквизиты придут в чат", "Details will come to the chat")}</span></span><span class="rt2">${money(total)}</span></button>` : ""}
     ${S.shop.docs.length ? `<p style="margin-top:12px;font-size:12.5px">${L("Оплачивая, вы принимаете", "By paying you accept")} ${S.shop.docs.map((d) => d.url ? `<a href="#" data-link="${esc(d.url)}">${esc(d.name)}</a>` : esc(d.name)).join(", ")}</p>` : ""}`);
 }
@@ -942,7 +957,8 @@ document.addEventListener("click", async (e) => {
     case "close-app": closeSheet(); try { tg && tg.close(); } catch (x) {} return;
   }
 });
-document.addEventListener("input", (e) => { if (e.target.id === "qty") setQty(parseInt(e.target.value || "1", 10)); });
+document.addEventListener("input", (e) => { if (e.target.id === "qty") setQty(parseInt(e.target.value || "0", 10), true); });
+document.addEventListener("change", (e) => { if (e.target.id === "qty") setQty(parseInt(e.target.value || "0", 10)); });
 $("#sheetBg").addEventListener("click", () => closeSheet());
 
 /* ---------- ворота: подписка, согласие, техработы ---------- */
@@ -1205,11 +1221,11 @@ function demoApi(path, body) {
   shop.accent = { halloween: "#ff7a1a", newyear: "#3fb6ff", winter: "#8fd3ff", autumn: "#e8913a", spring: "#ff7eb6", summer: "#ffbf1f", valentine: "#ff4d6d", none: "#8b7bff" }[shop.season];
   const user = { id: 1867178992, username: "apfov", first_name: "Heliys", photo_url: null, lang: "ru", balance: 3, deposited: 120, status: shop.statuses[0], next: shop.statuses[1], pct: 24, left: 380, bonus_left: 0, orders: 4, joined: "24.10.2026", promo: null, ref: { link: "https://t.me/heliys_shop_bot?start=ref_1867178992", invited: 3, earned: 45, available: 45, pct: 10 }, is_admin: true };
   const cats = [{ id: 1, name: "🤖 Ai-Сервисы", count: 6 }, { id: 2, name: "📱 Физ. номера", count: 12 }, { id: 3, name: "🎮 Игровые аккаунты", count: 4 }, { id: 4, name: "💎 Подписки", count: 8 }];
-  const items = [{ id: 1, name: "ChatGPT Plus · 1 месяц", price: 990, old_price: 1290, stock: 7, cat: 1 }, { id: 2, name: "Claude Pro · 1 месяц", price: 1490, old_price: 0, stock: 3, cat: 1 }, { id: 3, name: "Номер 🇺🇸 США", price: 149, old_price: 0, stock: -1, cat: 2 }, { id: 4, name: "Midjourney Basic", price: 790, old_price: 0, stock: 0, cat: 1 }];
+  const items = [{ id: 1, name: "ChatGPT Plus · 1 месяц", price: 990, old_price: 1290, stock: 7, cat: 1 }, { id: 2, name: "Claude Pro · 1 месяц", price: 1490, old_price: 0, stock: 3, cat: 1 }, { id: 3, name: "Номер 🇺🇸 США", price: 149, old_price: 0, stock: -1, cat: 2 }, { id: 4, name: "Midjourney Basic", price: 790, old_price: 0, stock: 0, out: true, cat: 1 }, { id: 5, name: "⭐ Telegram Stars", price: 1.4, old_price: 0, stock: -1, by_qty: true, min_qty: 50, stars: false, cat: 1 }];
   if (path === "boot") return Promise.resolve({ ok: true, shop, user, cats });
   if (path === "me") return Promise.resolve({ ok: true, user });
   if (path.startsWith("list")) return Promise.resolve({ ok: true, items });
-  if (path.startsWith("product/")) { const p = items.find((x) => x.id === +path.split("/")[1]) || items[0]; return Promise.resolve({ ok: true, product: { ...p, description: "Личный аккаунт с полным доступом.\n<blockquote>Выдача сразу после оплаты</blockquote>Гарантия <b>24 часа</b>.", multi: true, max_qty: 7, fav: false, promo_price: null, promo_pct: 0, cat_name: "🤖 Ai-Сервисы", raw_description: "Личный аккаунт с полным доступом.", kind: "auto", active: true, base_price: p.old_price || p.price } }); }
+  if (path.startsWith("product/")) { const p = items.find((x) => x.id === +path.split("/")[1]) || items[0]; return Promise.resolve({ ok: true, product: { ...p, description: "Личный аккаунт с полным доступом.\n<blockquote>Выдача сразу после оплаты</blockquote>Гарантия <b>24 часа</b>.", multi: true, max_qty: p.stock < 0 ? 10000 : (p.stock || 1), fav: false, promo_price: null, promo_pct: 0, cat_name: "🤖 Ai-Сервисы", raw_description: "Личный аккаунт с полным доступом.", kind: "auto", active: true, base_price: p.old_price || p.price } }); }
   if (path === "orders") return Promise.resolve({ ok: true, items: [{ id: 41, name: "Номер 🇺🇸 США", price: 149, status: "done", status_text: "✅ Выполнен", date: "29.10.2026 18:20", content: "+1 202 555 0143" }, { id: 40, name: "ChatGPT Plus", price: 990, status: "pending", status_text: "🔎 Чек на проверке", date: "28.10.2026 12:02", content: null }] });
   if (path.startsWith("admin/emoji")) return Promise.resolve({ ok: true, packs: [{ name: "used", title: "В магазине", items: [{ id: "1", e: "🔥" }, { id: "2", e: "💎" }, { id: "3", e: "🎃" }] }] });
   if (path.startsWith("admin/")) return Promise.resolve({ ok: true });

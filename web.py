@@ -409,10 +409,13 @@ def cat_block(c):
 
 
 def product_block(p, u=None):
+    from handlers.shop import in_stock, min_qty, stars_ok
     unlimited = db.unlimited(p)
+    available = in_stock(p)
     out = {"id": p["id"], "name": p["name"], "emoji_id": p["emoji_id"], "price": p["price"],
            "old_price": p["old_price"] if p["old_price"] and p["old_price"] > p["price"] else 0,
-           "stock": -1 if unlimited else db.stock(p["id"]), "cat": p["category_id"],
+           "stock": 0 if not available else -1 if unlimited else db.stock(p["id"]), "cat": p["category_id"],
+           "out": not available, "min_qty": min_qty(p), "by_qty": bool(p["min_qty"]), "stars": stars_ok(p),
            "media": media_url(p["photo"], p["media_type"]) if p["photo"] else None}
     return out
 
@@ -517,7 +520,7 @@ async def api_buy(request):
     p = db.product(pid)
     err = check_buyable(p, qty)
     if err:
-        return jerr(err, t(err, lang), 409)
+        return jerr(err, t(err, lang, min=p["min_qty"] if p else 1), 409)
     uid = request["user"]["id"]
     db.release_promo_orders(uid)
     u = db.get_user(uid)
@@ -537,6 +540,8 @@ async def api_buy(request):
         return web.json_response({"ok": True, "oid": oid, "result": res, "content": o["content"] if res == "done" else None,
                                   "status": order_status(o["status"], lang)})
     if method == "stars":
+        if p["no_stars"]:
+            return jerr("method", t("stars_off", lang))
         oid = db.create_order(uid, p, price, "stars", "wait_pay", code, qty)
         if code:
             db.consume_promo(uid)

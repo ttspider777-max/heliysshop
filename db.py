@@ -187,7 +187,10 @@ def _migrate():
                             ("categories", "photo", "TEXT"),
                             ("categories", "media_type", "TEXT"),
                             ("users", "deposited", "REAL DEFAULT 0"),  # сколько реальных денег принёс (для статуса)
-                            ("users", "bonus_at", "TEXT")):           # когда забирал ежедневный бонус
+                            ("users", "bonus_at", "TEXT"),            # когда забирал ежедневный бонус
+                            ("products", "soldout", "INTEGER DEFAULT 0"),   # админ пометил «нет в наличии»
+                            ("products", "no_stars", "INTEGER DEFAULT 0"),  # оплата звёздами для товара выключена
+                            ("products", "min_qty", "INTEGER DEFAULT 0")):  # >0 — покупка по количеству, от N шт.
         cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})")]
         if col not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")

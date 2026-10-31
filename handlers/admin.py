@@ -469,12 +469,16 @@ def admin_product_text(p):
         stock = "не сообщается магазином" if (p["ext_stock"] or 0) < 0 else f"{db.stock(p['id'])} шт. (у поставщика)"
         ext_info = (f"🔌 Магазин: {html.escape(shop['name']) if shop else '—'}, ID у них: <code>{html.escape(str(p['ext_pid']))}</code>\n"
                     f"🏷 Закупка: {money(p['ext_price'])} → продажа {money(p['price'])}\n")
+    qty_info = f"от {p['min_qty']} шт., цена указана за 1 шт." if p["min_qty"] else "выключена"
     return (f"📦 <b>{'💎 ' if p['emoji_id'] else ''}{html.escape(p['name'])}</b>  [ID {p['id']}]\n\n"
             f"📁 Категория: {html.escape(cat['name']) if cat else '—'}\n"
             f"💰 Цена: {money(p['price'])}{disc}\n"
             f"🔧 Выдача: {kind}\n"
             f"{ext_info}"
             f"🔑 Склад: {stock}\n"
+            f"{'🔴 Помечен «Нет в наличии» — купить нельзя' if p['soldout'] else '🟢 Продаётся'}\n"
+            f"⭐ Оплата звёздами: {'выключена' if p['no_stars'] else 'включена'}\n"
+            f"🔢 Покупка по количеству: {qty_info}\n"
             f"👁 Виден покупателям: {'да' if p['active'] else 'нет'}\n"
             f"🖼 Карточка: {MEDIA_NAMES.get(p['media_type'] or 'photo') if p['photo'] else 'нет'}\n\n"
             f"📝 Описание:\n{p['description'] or '—'}")
@@ -496,6 +500,10 @@ async def show_admin_product(target, pid, prefix=""):
         rows.append([B("📦 Пополнить склад", f"a:ai:{pid}", style="success"), B("🗑 Очистить склад", f"a:pclr:{pid}")])
         if db.inf_content(pid):
             rows.append([B("⛔ Выключить бесконечность", f"a:infoff:{pid}", style="danger")])
+    rows.append([B("🔴 Нет в наличии — вернуть в продажу" if p["soldout"] else "🔴 Пометить «Нет в наличии»",
+                   f"a:psold:{pid}", style="success" if p["soldout"] else "danger")])
+    rows.append([B("⭐ Звёзды: ВЫКЛ" if p["no_stars"] else "⭐ Звёзды: ВКЛ ✅", f"a:pstar:{pid}"),
+                 B(f"🔢 Кол-во: от {p['min_qty']}" if p["min_qty"] else "🔢 По количеству: ВЫКЛ", f"a:pe:minq:{pid}")])
     rows.append([B("👁 Содержимое товара (что на складе)", f"a:pv:{pid}:0", style="primary")])
     rows.append([B("📢 Уведомить всех о пополнении", f"a:rsn:{pid}", style="success")])
     kind_btn = [] if p["kind"] == "ext" else [B("🔧 Тип выдачи", f"a:pkind:{pid}")]
@@ -522,11 +530,14 @@ async def prods_view(call, page):
     for p in items[page * per:(page + 1) * per]:
         st = "∞" if db.unlimited(p) else db.stock(p["id"])
         hid = "🙈 " if not p["active"] else ""
+        if p["soldout"]:
+            hid += "🔴 "
         rows.append([B(f"{hid}{p['name']} — {money(p['price'])} [{st}]", f"a:p:{p['id']}")])
     rows.append(pager("a:prods:", page, pages))
     rows.append([B("➕ Добавить товар", "a:addp", style="success")])
     rows.append(back("a:shopm"))
-    await render(call, f"🗂 <b>Товары</b> — {len(items)}\n\nВ скобках — остаток на складе.", kb(rows))
+    await render(call, f"🗂 <b>Товары</b> — {len(items)}\n\nВ скобках — остаток на складе, 🔴 — помечен «Нет в наличии».",
+                 kb(rows))
 
 
 @router.callback_query(F.data.startswith("a:p:"))
@@ -542,6 +553,10 @@ PE_PROMPTS = {
     "photo": "🖼 Отправьте <b>фото, видео или GIF</b> — это карточка товара в боте и в мини-приложении.\n"
              "Видео в мини-приложении проигрывается без звука по кругу (до 20 МБ).\n<code>-</code> — убрать.",
     "disc": "🏷 Отправьте <b>цену со скидкой</b>.\nТекущая цена станет зачёркнутой, товар появится в разделе «Скидки».",
+    "minq": "🔢 <b>Покупка по количеству</b>\n\nОтправьте <b>минимальное количество</b>, например <code>50</code>.\n"
+            "Покупатель сам вводит, сколько штук ему нужно (не меньше минимума), бот считает итог: "
+            "<b>цена товара × количество</b>. Поэтому в «💰 Цена» укажите цену <b>за 1 шт.</b> "
+            "(например, за 1 звезду).\n\n<code>0</code> — выключить.",
 }
 
 
@@ -575,6 +590,10 @@ async def i_pedit(m, state, d, txt, bot):
         db.update_product(pid, name=name[:100], emoji_id=icon)
     elif field == "desc":
         db.update_product(pid, description="" if txt == "-" else m.html_text)
+    elif field == "minq":
+        if not txt.isdigit() or int(txt) > 1_000_000:
+            return await m.answer("Отправьте целое число (например <code>50</code>) или <code>0</code>, чтобы выключить:")
+        db.update_product(pid, min_qty=int(txt))
     else:
         v = parse_amount(txt)
         if v is None or v < 0:
@@ -605,6 +624,36 @@ async def cb_pact(call: CallbackQuery):
     db.update_product(pid, active=0 if db.product(pid)["active"] else 1)
     await show_admin_product(call, pid)
     await call.answer()
+
+
+@router.callback_query(F.data.startswith("a:psold:"))
+async def cb_psold(call: CallbackQuery, bot: Bot):
+    pid = int(call.data.split(":")[2])
+    p = db.product(pid)
+    if not p:
+        return await call.answer("Товар не найден", show_alert=True)
+    db.update_product(pid, soldout=0 if p["soldout"] else 1)
+    notified = 0
+    if p["soldout"]:  # вернули в продажу — пишем тем, кто нажал «Уведомить о поступлении»
+        from handlers.shop import in_stock
+        if in_stock(db.product(pid)):
+            notified = await notify_arrival(bot, pid)
+    await show_admin_product(call, pid)
+    if p["soldout"]:
+        await call.answer("🟢 Товар снова в продаже" + (f", уведомлено: {notified}" if notified else ""))
+    else:
+        await call.answer("🔴 Товар помечен «Нет в наличии»")
+
+
+@router.callback_query(F.data.startswith("a:pstar:"))
+async def cb_pstar(call: CallbackQuery):
+    pid = int(call.data.split(":")[2])
+    p = db.product(pid)
+    if not p:
+        return await call.answer("Товар не найден", show_alert=True)
+    db.update_product(pid, no_stars=0 if p["no_stars"] else 1)
+    await show_admin_product(call, pid)
+    await call.answer("⭐ Оплата звёздами включена" if p["no_stars"] else "⭐ Оплата звёздами выключена для этого товара")
 
 
 @router.callback_query(F.data.startswith("a:pkind:"))
