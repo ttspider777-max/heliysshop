@@ -12,7 +12,7 @@ import ext
 import hosting
 import web
 # admin_extra, admin_app и restock регистрируют хендлеры на admin.router
-from handlers import (admin, admin_app, admin_ctor, admin_extra, builder, codex, cryptopay, legal, payments,  # noqa: F401
+from handlers import (admin, admin_app, admin_extra, builder, codex, cryptopay, legal, payments,  # noqa: F401
                       restock, shop, support, topup, user)
 import crypto
 from middlewares import UserMiddleware
@@ -32,6 +32,9 @@ async def main():
             logging.error("ОСТАНОВЛЕН: токен принадлежит @%s, а не боту клиента", me.username)
             raise SystemExit(config.EXIT_IDENTITY)
     db.init()
+    if config.CTOR_MODE:  # отдельный бот-конструктор (см. config.CTOR_MODE)
+        await bot.session.close()
+        return await run_constructor()
     dp = Dispatcher()
     mw = UserMiddleware()
     dp.message.outer_middleware(mw)
@@ -55,12 +58,6 @@ async def main():
     if not config.CHILD:
         hosting.start_all(bot)  # боты клиентов («🤖 Создать своего бота»)
         tasks.append(asyncio.create_task(builder.trial_loop(bot)))  # выключение после пробного периода
-        from ctor import bot as ctor_bot, core as ctor_core
-        ctor_core.init()
-        if ctor_core.token() and not ctor_core.get("off"):  # бот-конструктор (токен — в /admin → 🏗 Конструктор или CONSTRUCTOR_TOKEN)
-            err = await ctor_bot.start()
-            if err:
-                logging.warning("бот-конструктор не запущен: %s", err)
     logging.info("%s bot started%s", config.SHOP_NAME, " (бот клиента)" if config.CHILD else "")
     try:
         await dp.start_polling(bot)
@@ -68,9 +65,30 @@ async def main():
         for task in tasks:
             task.cancel()
         if not config.CHILD:
-            from ctor import bot as ctor_bot
-            await ctor_bot.stop()
             await hosting.shutdown()
+        if site:
+            await site.cleanup()
+
+
+async def run_constructor():
+    """Бот-конструктор: сам бот, его мини-приложение (/c/app), магазины клиентов (/b/<номер>) и пробные периоды."""
+    from ctor import bot as ctor_bot, core as ctor_core
+    ctor_core.init()
+    err = await ctor_bot.start()
+    if err:
+        raise SystemExit(f"Бот-конструктор не запущен: {err}")
+    b = ctor_bot.bot()
+    site = await web.start(b)
+    hosting.start_all(b)  # магазины клиентов, созданные через конструктор
+    tasks = [asyncio.create_task(builder.trial_loop(b))]
+    logging.info("бот-конструктор работает")
+    try:
+        await ctor_bot.wait()
+    finally:
+        for task in tasks:
+            task.cancel()
+        await hosting.shutdown()
+        await ctor_bot.stop()
         if site:
             await site.cleanup()
 

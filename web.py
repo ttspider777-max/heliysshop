@@ -976,6 +976,7 @@ async def start(bot=None):
     app.router.add_post("/api/admin/pack_del", api_admin_pack_del)
     if not config.CHILD:
         app.router.add_route("*","/b/{bid:\\d+}/{tail:.*}", child_proxy)
+    if config.CTOR_MODE:
         from ctor import web as ctor_web  # мини-приложение бота-конструктора: /c/app и /c/api/*
         ctor_web.setup(app)
     runner = web.AppRunner(app)

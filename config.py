@@ -90,6 +90,14 @@ else:
     EXPECT_BOT_ID = MAIN_BOT_ID = 0
     CTOR_URL = ""
 
+# Бот-конструктор — отдельный бот на BotHost из этого же репозитория. Режим включается сам, если бот запущен
+# с токеном конструктора (BotHost подставляет токен в BOT_TOKEN), или переменной BOT_MODE=constructor.
+# В этом режиме работает только конструктор: его мини-приложение и магазины клиентов (своя база).
+CTOR_BOT_IDS = {9129587483}  # id бота-конструктора (это не секрет; токен в коде не хранится)
+_tid = BOT_TOKEN.split(":", 1)[0]
+CTOR_MODE = (not CHILD) and (os.getenv("BOT_MODE", "").lower() == "constructor"
+                             or (_tid.isdigit() and int(_tid) in CTOR_BOT_IDS))
+
 SHOP_TITLE = SHOP_NAME if CHILD else "heliys 𝗌𝗁𝗈𝗉"  # заголовок в приветствии
 
 # Встроенный сайт: мини-приложение (/app) и документы (/privacy, /terms).

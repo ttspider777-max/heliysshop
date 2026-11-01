@@ -87,10 +87,14 @@ def app_url():
 
 
 def main_bot_id():
+    """id основного магазина @heliys_shop_bot — его токен нельзя подключить как магазин клиента."""
     try:
-        return int(config.BOT_TOKEN.split(":", 1)[0])
+        return int(config.BOT_TOKEN.split(":", 1)[0]) if not config.CTOR_MODE else MAIN_SHOP_ID
     except ValueError:
         return 0
+
+
+MAIN_SHOP_ID = int(os.getenv("MAIN_BOT_ID") or 0)  # id @heliys_shop_bot (необязательно)
 
 
 async def start():
@@ -100,7 +104,7 @@ async def start():
     tok = core.token()
     if not tok:
         return "токен не задан"
-    if tok == config.BOT_TOKEN:
+    if tok == config.BOT_TOKEN and not config.CTOR_MODE:
         return "это токен основного бота"
     b = Bot(tok, default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True))
     try:
@@ -127,6 +131,15 @@ async def start():
     _task = asyncio.create_task(_dp.start_polling(b, handle_signals=False, close_bot_session=False))
     log.info("бот-конструктор @%s запущен", me.username)
     return None
+
+
+async def wait():
+    """Ждёт, пока работает поллинг конструктора (для отдельного запуска, см. main.run_constructor)."""
+    if _task:
+        try:
+            await _task
+        except asyncio.CancelledError:
+            pass
 
 
 async def stop():

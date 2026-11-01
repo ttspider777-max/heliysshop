@@ -57,7 +57,9 @@ def put(key, value):
 
 
 def token():
-    """Токен конструктора: из настроек (вводится в основном боте) или из переменной окружения."""
+    """Токен конструктора. Отдельный бот на BotHost: его BOT_TOKEN (config.CTOR_MODE)."""
+    if config.CTOR_MODE:
+        return config.BOT_TOKEN
     return (get("token") or os.getenv("CONSTRUCTOR_TOKEN") or "").strip()
 
 

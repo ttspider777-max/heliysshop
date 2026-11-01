@@ -91,14 +91,15 @@ async def home(target, prefix=""):
             f"💰 Цена бота: <b>{money(core.price())}</b> · 🎁 Пробный: <b>{core.trial_days() or 'выкл'}</b>"
             f"{' дн.' if core.trial_days() else ''}")
     if not cbot.app_url():
-        text += ("\n\n⚠️ <i>Мини-приложение недоступно: в основном боте не задан https-адрес сайта "
-                 "(/admin → 🎨 Мини-приложение → 🌐 Адрес сайта). Пока создание идёт кнопками в чате.</i>")
+        text += ("\n\n⚠️ <i>Мини-приложение недоступно: не задан https-адрес сайта. На BotHost включите "
+                 "«Использовать домен» (порт 8080) и вставьте выданный адрес кнопкой «🌐 Адрес сайта». "
+                 "Пока создание идёт кнопками в чате.</i>")
     await render(target, text, kb([
         [B("👋 Приветствие", "ca:wel"), B("🔘 Кнопки", "ca:btns")],
         [B("📝 Тексты бота", "ca:txl:0"), B("📱 Мини-приложение", "ca:app", style="primary")],
         [B("💰 Цена", "ca:v:price"), B("🎁 Пробный период", "ca:v:trial_days")],
         [B("💳 Реквизиты СБП", "ca:v:sbp"), B("💬 Поддержка", "ca:v:support_url")],
-        [B("💵 Мин. пополнение", "ca:v:topup_min")],
+        [B("💵 Мин. пополнение", "ca:v:topup_min"), B("🌐 Адрес сайта", "ca:v:site")],
         [B("🤖 Магазины клиентов", "ca:hb:0", style="success")],
         [B("👥 Пользователи и баланс", "ca:usr"), B("📢 Рассылка", "ca:bc")],
         [B("🏠 Меню конструктора", "c:menu")],
@@ -458,6 +459,8 @@ VALUES = {
     "support_url": ("💬 Поддержка", "Отправьте ссылку или @username поддержки конструктора. "
                                    "<code>-</code> — как в основном боте."),
     "topup_min": ("💵 Мин. пополнение", "Минимальная сумма пополнения в рублях (например <code>50</code>)."),
+    "site": ("🌐 Адрес сайта", "Отправьте https-адрес, который BotHost выдал этому боту (например "
+                              "<code>https://bot-123-heliys.bothost.tech</code>). Без него мини-приложение не откроется."),
     "app_accent": ("🎨 Цвет мини-приложения", "Отправьте цвет в формате <code>#8b5cf6</code>. "
                                              "<code>-</code> — стандартный."),
 }
@@ -471,7 +474,8 @@ async def cb_value(call: CallbackQuery):
     name, prompt = VALUES[key]
     cur = {"price": money(core.price()), "trial_days": core.trial_days(), "sbp": core.sbp(),
            "support_url": html.escape(core.support_url() or "—"), "topup_min": money(core.topup_min()),
-           "app_accent": core.get("app_accent") or "#8b5cf6"}[key]
+           "app_accent": core.get("app_accent") or "#8b5cf6",
+           "site": html.escape(appcfg.public_url() or "не задан")}[key]
     await ask(call, "value", f"<b>{name}</b>\n\nСейчас: {cur}\n\n{prompt}",
               cancel="ca:app" if key == "app_accent" else "ca:home", key=key)
 
@@ -796,6 +800,13 @@ async def _on_value(m, w, txt, finish):
             if not url:
                 return await m.answer("Нужна ссылка https://… или @username:")
             core.put(key, txt if txt.startswith("@") else url)
+    elif key == "site":
+        url = txt.strip().rstrip("/")
+        if not url.startswith("https://") or " " in url:
+            return await m.answer("Нужен адрес, который начинается с https://")
+        db.set_setting("public_url", url)
+        from ctor import bot as cbot
+        await cbot.setup_menu_button()
     elif key == "app_accent":
         if txt == "-":
             core.put(key, None)

@@ -66,7 +66,6 @@ def admin_kb():
         [B("💎 Криптооплата", "a:cry")],
         [B("📄 Документы", "a:docs"), B("👮 Админы", "a:adm")],
         ([B("🔐 Codex", "a:cx")] + ([] if config.CHILD else [B("🤖 Боты клиентов", "a:hb")])),
-        [] if config.CHILD else [B("🏗 Бот-конструктор", "a:ctor", style="primary")],
         [B("💾 База и бэкапы", "a:bk")],
         [B("🛠 Техработы: ВКЛ — выключить" if maint else "🛠 Включить техработы",
            "a:maint", style="danger" if maint else None)],
