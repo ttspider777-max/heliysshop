@@ -100,6 +100,7 @@ async def home(target, prefix=""):
         [B("💰 Цена", "ca:v:price"), B("🎁 Пробный период", "ca:v:trial_days")],
         [B("💳 Реквизиты СБП", "ca:v:sbp"), B("💬 Поддержка", "ca:v:support_url")],
         [B("💵 Мин. пополнение", "ca:v:topup_min"), B("🌐 Адрес сайта", "ca:v:site")],
+        [B("👨‍💼 Куратор", "ca:v:curator")],
         [B("🤖 Магазины клиентов", "ca:hb:0", style="success")],
         [B("👥 Пользователи и баланс", "ca:usr"), B("📢 Рассылка", "ca:bc")],
         [B(f"📣 Обязательная подписка ({len(db.channels())})", "ca:subs")],
@@ -459,6 +460,9 @@ VALUES = {
                                "<code>-</code> — как в основном боте."),
     "support_url": ("💬 Поддержка", "Отправьте ссылку или @username поддержки конструктора. "
                                    "<code>-</code> — как в основном боте."),
+    "curator": ("👨‍💼 Куратор", "Отправьте @username или ссылку куратора — после создания магазина бот напишет "
+                               "владельцу «Напиши своему куратору» с этой ссылкой. <code>-</code> — как поддержка.\n\n"
+                               "Текст сообщения меняется в «📝 Тексты бота» → «Сообщение о кураторе»."),
     "topup_min": ("💵 Мин. пополнение", "Минимальная сумма пополнения в рублях (например <code>50</code>)."),
     "site": ("🌐 Адрес сайта", "Отправьте https-адрес, который BotHost выдал этому боту (например "
                               "<code>https://bot-123-heliys.bothost.tech</code>). Без него мини-приложение не откроется."),
@@ -475,6 +479,7 @@ async def cb_value(call: CallbackQuery):
     name, prompt = VALUES[key]
     cur = {"price": money(core.price()), "trial_days": core.trial_days(), "sbp": core.sbp(),
            "support_url": html.escape(core.support_url() or "—"), "topup_min": money(core.topup_min()),
+           "curator": html.escape(core.curator() or "—"),
            "app_accent": core.get("app_accent") or "#8b5cf6",
            "site": html.escape(appcfg.public_url() or "не задан")}[key]
     await ask(call, "value", f"<b>{name}</b>\n\nСейчас: {cur}\n\n{prompt}",
@@ -881,7 +886,7 @@ async def _on_value(m, w, txt, finish):
         core.put(key, int(txt))
     elif key == "sbp":
         core.put(key, None if txt == "-" else m.html_text)
-    elif key == "support_url":
+    elif key in ("support_url", "curator"):
         if txt == "-":
             core.put(key, None)
         else:

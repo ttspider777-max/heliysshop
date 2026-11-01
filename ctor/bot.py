@@ -727,12 +727,22 @@ async def create_shop(call: CallbackQuery, uid, d, bot: Bot):
             [raw_btn(f"🤖 Открыть @{d['username']}", url=f"https://t.me/{d['username']}", style="success")],
             [B("bots", "c:bots"), B("menu", "c:menu")],
         ]))
+        await send_curator(uid, d["username"])
     else:
         await out(uid, tx("create_fail", username=name), kb([[B("support", "c:sup")], [B("menu", "c:menu")]]))
     await to_admins(f"🏗 <b>Магазин {'создан' if ok else 'создан, но НЕ запустился'}</b> через конструктор\n\n"
                     f"🆔 #{bid} · 🤖 @{name}\n👤 {core.user_link(u)}\n"
                     + (f"🎁 Пробный до {builder.fmt_until(b['trial_until'])}" if b["trial_until"]
                        else f"💰 Оплачено с баланса: {money(pr)}"))
+
+
+async def send_curator(uid, username):
+    """После создания магазина: «Напиши своему куратору» с кнопкой-ссылкой."""
+    cur = core.curator() or ""
+    url = fix_url(cur)
+    label = html.escape(cur if cur.startswith("@") else (f"@{url.rsplit('/', 1)[-1]}" if url and "t.me/" in url else cur))
+    await out(uid, tx("curator_msg", curator=label or "—", username=html.escape(username or "?")),
+              kb([[B("curator", url=url)]]) if url else None)
 
 
 def _public_cfg(d):
