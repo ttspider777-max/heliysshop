@@ -80,7 +80,8 @@ async def run_constructor():
     b = ctor_bot.bot()
     site = await web.start(b)
     hosting.start_all(b)  # магазины клиентов, созданные через конструктор
-    tasks = [asyncio.create_task(builder.trial_loop(b))]
+    tasks = [asyncio.create_task(builder.trial_loop(b)),
+             asyncio.create_task(crypto.checker(b))]  # оплата CryptoBot / xRocket
     logging.info("бот-конструктор работает")
     try:
         await ctor_bot.wait()

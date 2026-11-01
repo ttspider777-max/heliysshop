@@ -152,6 +152,10 @@ async def settle(bot, iid):
     if cur.rowcount == 0:   # уже проведён (или такого счёта нет)
         return False
     inv = invoice(iid)
+    if inv["kind"] == "ctor":  # бот-конструктор: оплата нового магазина или покупки навсегда
+        from ctor import bot as ctor_bot
+        await ctor_bot.on_paid(inv["ref_id"], f"{inv['method']}:{inv['ext_id']}")
+        return True
     from services import fulfill, to_admins, user_link
     from ui import kb, menu_row
     service = SERVICES[inv["method"]]
@@ -209,6 +213,9 @@ def _expire_old():
                (int(time.time()) - INVOICE_TTL - 120,))
     for inv in old:
         db.x("UPDATE crypto_invoices SET status='expired' WHERE id=?", (inv["id"],))
+        if inv["kind"] == "ctor":
+            db.x("UPDATE ctor_payments SET status='canceled' WHERE id=? AND status='wait'", (inv["ref_id"],))
+            continue
         if inv["kind"] == "order":
             o = db.order(inv["ref_id"])
             if o and o["status"] == "wait_pay" and o["method"] == inv["method"]:

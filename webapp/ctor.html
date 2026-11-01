@@ -201,6 +201,22 @@ input, textarea { font: inherit; color: inherit; }
 .gate .chan { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px; margin-bottom: 8px; text-align: left; font-weight: 700; }
 .gate .chan .ci { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-3); flex: none; }
 .gate .chan .arrow { margin-left: auto; color: var(--muted); }
+.plan-head { font: 700 22px/1.2 var(--display); margin: 10px 2px 16px; letter-spacing: -.01em; }
+.plan { width: 100%; display: flex; align-items: center; gap: 14px; padding: 18px 16px; margin-bottom: 12px; text-align: left;
+  border-radius: var(--r-lg); background: var(--surface); border: 1.5px solid var(--line); transition: border-color .15s, transform .12s; }
+.plan:active { transform: scale(.985); }
+.plan.main { border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%), var(--surface); }
+.plan:disabled { opacity: .45; }
+.plan .pi { width: 48px; height: 48px; border-radius: var(--r-md); display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); flex: none; font-size: 24px; }
+.plan .pi .ic { width: 24px; height: 24px; }
+.plan b { display: block; font: 700 17px/1.2 var(--display); }
+.plan small { display: block; color: var(--muted); font-size: 13px; margin-top: 4px; }
+.plan .price { margin-left: auto; text-align: right; flex: none; font-weight: 800; }
+.plan .price small { margin-top: 2px; }
+.methods { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.methods span { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--line); font-size: 12px; font-weight: 700; color: var(--text); }
+.methods .pe, .methods .ic { width: 15px; height: 15px; }
 .err { text-align: center; padding: 60px 20px; color: var(--muted); }
 .err b { display: block; color: var(--text); font: 700 18px var(--display); margin-bottom: 8px; }
 </style>
@@ -211,6 +227,7 @@ input, textarea { font: inherit; color: inherit; }
   <section class="screen" id="s-home"></section>
   <section class="screen" id="s-bots"></section>
   <section class="screen" id="s-profile"></section>
+  <section class="screen" id="s-plan"></section>
   <section class="screen" id="s-wizard"></section>
   <section class="screen" id="s-error"></section>
 </div>
@@ -255,9 +272,13 @@ const ICONS = {
   send: '<path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/>',
   store: '<path d="M3 9l1.5-5h15L21 9"/><path d="M4 9v11h16V9"/><path d="M10 20v-5h4v5"/>',
   megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+  star: '<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/>',
+  gem: '<path d="M6 3h12l4 6-10 12L2 9zM2 9h20M12 21L8 9l4-6 4 6z"/>',
+  bank: '<path d="M3 21h18M5 21V10M19 21V10M9 21V10M15 21V10M2 10l10-7 10 7z"/>',
 };
 const svg = (n, cls = "") => `<svg class="ic ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n] || ""}</svg>`;
-const SLOT_SVG = { create: "bot", bots: "bot", topup: "card", support: "chat", feat: "check", trial: "gift", home: "home", profile: "user" };
+const SLOT_SVG = { create: "bot", bots: "bot", topup: "card", support: "chat", feat: "check", trial: "gift", home: "home", profile: "user",
+  buy: "card", stars: "star", crypto: "gem", sbp: "bank" };
 function ic(slot) {
   const i = S.app && S.app.icons[slot];
   if (i && i.id) return `<span class="pe" data-eid="${esc(i.id)}">${esc(i.e)}</span>`;
@@ -334,7 +355,7 @@ async function api(path, body) {
 const TABS = [["home", "home", "app_home"], ["bots", "bots", "app_bots"], ["profile", "profile", "app_profile"]];
 function renderNav() {
   const nav = $("#nav");
-  nav.hidden = S.tab === "wizard";
+  nav.hidden = S.tab === "wizard" || S.tab === "plan";
   nav.innerHTML = '<div class="in">' + TABS.map(([id, icon, txt]) => `<button data-tab="${id}" class="${S.tab === id ? "on" : ""}"><span class="ni">${ic(icon)}</span><span>${T(txt)}</span></button>`).join("") + "</div>";
   hydrateEmoji(nav);
 }
@@ -345,7 +366,7 @@ function show(id) {
 function go(tab) {
   S.tab = tab;
   $("#wzbar").hidden = tab !== "wizard";
-  if (tab === "home") renderHome(); else if (tab === "bots") renderBots(); else if (tab === "profile") renderProfile(); else if (tab === "wizard") renderWizard();
+  if (tab === "home") renderHome(); else if (tab === "bots") renderBots(); else if (tab === "profile") renderProfile(); else if (tab === "plan") renderPlan(); else if (tab === "wizard") renderWizard();
   renderNav(); show(tab);
   try { if (tg && tg.BackButton) tab === "home" ? tg.BackButton.hide() : tg.BackButton.show(); } catch (e) {}
 }
@@ -359,14 +380,14 @@ function badgeHtml(season, text, iconSlot) {
 function heroHtml() {
   const a = S.app, u = S.user;
   const bg = a.bg ? (a.bg.type === "video" ? `<video src="${esc(a.bg.url)}" autoplay loop muted playsinline></video>` : `<img src="${esc(a.bg.url)}" alt="">`) : "";
-  const [whole, frac] = String(Math.round(u.balance * 100) / 100).split(".");
+  const [whole, frac] = String(Math.round(S.price * 100) / 100).split(".");
   return `<div class="hero" style="--fx:${a.season === "halloween" ? "#ff7a1a" : "var(--accent)"}">
     <div class="hero-media">${bg}</div><div class="fx">${fxHtml(a.season)}</div>
     <div class="hero-top"><div class="hero-title">${T("app_title")}</div>${badgeHtml(a.season, T("app_badge"))}</div>
     <div class="hero-sub">${T("app_sub")}</div>
-    <div class="hero-bottom"><div><div class="hero-label">${T("app_balance")}</div>
+    <div class="hero-bottom"><div><div class="hero-label">${T("app_plan_buy")}</div>
       <div class="balance">${Number(whole).toLocaleString("ru-RU")}${frac ? "," + frac : ""}<small>₽</small></div></div>
-      <button class="plus" data-act="topup" aria-label="${esc(plain(T("app_topup")))}">${svg("plus")}</button></div></div>`;
+      ${S.pay.stars ? `<span class="pill" style="background:rgba(0,0,0,.55);border-color:rgba(255,255,255,.14);color:#fff">${ic("stars")} ${S.pay.stars} ⭐</span>` : ""}</div></div>`;
 }
 function pillsHtml() {
   const out = [];
@@ -403,17 +424,34 @@ function renderBots() {
 function renderProfile() {
   const u = S.user;
   const av = u.photo_url ? `<img src="${esc(u.photo_url)}" alt="">` : esc((u.first_name || "U").slice(0, 1).toUpperCase());
-  const amounts = S.topup.amounts.length ? S.topup.amounts : [Math.ceil(S.topup.min)];
   $("#s-profile").innerHTML = `<div class="card me"><span class="av">${av}</span><div><b>${esc(u.first_name || "")}</b><small>${u.username ? "@" + esc(u.username) : "ID " + u.id}</small></div>
-      <div style="margin-left:auto;text-align:right"><small>${T("app_balance")}</small><b>${money(u.balance)}</b></div></div>
-    <div class="section-title">${T("app_topup_title")}</div>
-    <div class="amounts">${amounts.map((a) => `<button data-amount="${a}" class="${S.topupAmount === a ? "on" : ""}">${money(a)}</button>`).join("")}</div>
-    <input class="inp" id="amountInp" style="margin-top:8px" inputmode="decimal" placeholder="Своя сумма, от ${money(S.topup.min)}" value="${S.topupAmount && !amounts.includes(S.topupAmount) ? S.topupAmount : ""}">
-    <p class="hint">${T("app_topup_hint")}</p>
-    <button class="btn block" style="margin-top:12px" data-act="dotopup">${ic("topup")} ${T("app_topup")}</button>
+      ${u.balance > 0 ? `<div style="margin-left:auto;text-align:right"><small>${T("app_balance")}</small><b>${money(u.balance)}</b></div>` : ""}</div>
+    <div class="section-title">${T("app_bots")}</div>
+    <button class="btn block ghost" data-tab="bots">${ic("bots")} ${T("app_bots")} · ${S.bots.length}</button>
     <div class="section-title">${T("app_support")}</div>
     <button class="btn block ghost" data-act="support">${ic("support")} ${T("app_support")}</button>`;
   hydrateEmoji($("#s-profile"));
+}
+
+/* ---------- выбор тарифа: пробный или купить ---------- */
+function methodsHtml() {
+  const m = [];
+  if (S.pay.stars) m.push(`<span>${ic("stars")} Звёзды</span>`);
+  if (S.pay.crypto.length) m.push(`<span>${ic("crypto")} ${S.pay.crypto.map((c) => c === "cryptobot" ? "CryptoBot" : "xRocket").join(" · ")}</span>`);
+  if (S.pay.sbp) m.push(`<span>${ic("sbp")} СБП</span>`);
+  return m.length ? `<div class="methods">${m.join("")}</div>` : "";
+}
+function renderPlan() {
+  const trialOn = S.trial.on && S.trial.days > 0;
+  $("#s-plan").innerHTML = `<div class="wz-head"><button class="back" data-act="planback" aria-label="${esc(plain(T("app_back")))}">${svg("left")}</button></div>
+    <div class="plan-head">${T("app_plan_title")}</div>
+    ${S.trial.days > 0 ? `<button class="plan ${trialOn ? "main" : ""}" data-plan="trial" ${trialOn ? "" : "disabled"}>
+      <span class="pi">${ic("trial")}</span><span><b>${T("app_plan_trial")}</b><small>${trialOn ? T("app_plan_trial_sub") : T("app_plan_used")}</small></span>
+      <span class="price">0 ₽<small>${esc(S.trial.text)}</small></span></button>` : ""}
+    <button class="plan ${trialOn ? "" : "main"}" data-plan="buy">
+      <span class="pi">${ic("buy")}</span><span><b>${T("app_plan_buy")}</b><small>${T("app_plan_buy_sub")}</small>${methodsHtml()}</span>
+      <span class="price">${money(S.price)}${S.pay.stars ? `<small>${S.pay.stars} ⭐</small>` : ""}</span></button>`;
+  hydrateEmoji($("#s-plan"));
 }
 
 /* ---------- мастер ---------- */
@@ -508,7 +546,7 @@ async function finishWizard(btn) {
   const w = wzState();
   btn.disabled = true;
   try {
-    await api("draft", { color: w.color, hex: w.hex, style: w.style, title: w.title.trim(), desc: w.desc.trim() });
+    await api("draft", { color: w.color, hex: w.hex, style: w.style, title: w.title.trim(), desc: w.desc.trim(), plan: S.plan || "buy" });
     haptic("ok");
     $("#wzbar").hidden = true;
     $("#s-wizard").innerHTML = `<div class="wz-done"><div class="di">${svg("check")}</div><h2>Витрина готова!</h2><p>${T("app_finish_hint")}</p>
@@ -521,9 +559,10 @@ async function finishWizard(btn) {
 
 /* ---------- события ---------- */
 document.addEventListener("click", async (ev) => {
-  const el = ev.target.closest("[data-act],[data-tab],[data-color],[data-style],[data-title],[data-desc],[data-amount],[data-buy],[data-open]");
+  const el = ev.target.closest("[data-plan],[data-act],[data-tab],[data-color],[data-style],[data-title],[data-desc],[data-amount],[data-buy],[data-open]");
   if (!el) return;
   const d = el.dataset;
+  if (d.plan) { S.plan = d.plan; S.wz = null; haptic("medium"); return go("wizard"); }
   if (d.tab) { haptic(); return go(d.tab); }
   if (d.open) return openLink(`https://t.me/${d.open}`);
   if (d.buy) return buyBot(+d.buy, el);
@@ -534,10 +573,11 @@ document.addEventListener("click", async (ev) => {
   if (d.desc) { w.desc = d.desc.slice(0, 200); haptic(); $("#stepBody").innerHTML = stepHtml(); bindWizardInputs(); return refreshPreview(); }
   if (d.amount) { S.topupAmount = +d.amount; haptic(); return renderProfile(); }
   switch (d.act) {
-    case "create": haptic("medium"); S.wz = null; return go("wizard");
+    case "create": haptic("medium"); S.wz = null; return go("plan");
+    case "planback": return go("home");
     case "custom": w.color = "custom"; w.customOpen = true; $("#stepBody").innerHTML = stepHtml(); bindWizardInputs(); setAccent(wzAccent()); refreshPreview(); return;
     case "wznext": if (!stepValid()) return; w.step++; haptic(); return renderWizard();
-    case "wzback": if (w.step > 1) { w.step--; return renderWizard(); } setAccent(S.app.accent); return go("home");
+    case "wzback": if (w.step > 1) { w.step--; return renderWizard(); } setAccent(S.app.accent); return go("plan");
     case "wzfinish": if (stepValid()) return finishWizard(el); return;
     case "topup": return go("profile");
     case "dotopup": return doTopup(el);
@@ -563,24 +603,24 @@ async function doTopup(btn) {
 async function buyBot(id, btn) {
   const go2 = async () => {
     btn.disabled = true;
-    try { const r = await api("buy", { bot: id }); S.user.balance = r.balance; S.bots = r.bots; haptic("ok"); toast("Бот куплен навсегда"); go(S.tab); }
+    try { await api("buy", { bot: id }); haptic("ok"); toast(plain(T("app_buy_sent"))); setTimeout(() => { try { tg && tg.close(); } catch (e) {} }, 1200); }
     catch (e) { haptic("err"); toast(e.message); btn.disabled = false; }
   };
-  const msg = `Купить бота навсегда за ${money(S.price)}? Сумма спишется с баланса.`;
-  if (tg && tg.showConfirm && !DEMO) tg.showConfirm(msg, (ok) => ok && go2()); else if (confirm(msg)) go2();
+  go2();
 }
 
 /* ---------- старт ---------- */
 async function boot() {
-  try { if (tg) { tg.ready(); tg.expand(); tg.setHeaderColor && tg.setHeaderColor("#000000"); tg.setBackgroundColor && tg.setBackgroundColor("#000000"); tg.BackButton && tg.BackButton.onClick(() => { if (S.tab === "wizard") { const w = wzState(); if (w.step > 1) { w.step--; return renderWizard(); } setAccent(S.app.accent); } go("home"); }); } } catch (e) {}
+  try { if (tg) { tg.ready(); tg.expand(); tg.setHeaderColor && tg.setHeaderColor("#000000"); tg.setBackgroundColor && tg.setBackgroundColor("#000000"); tg.BackButton && tg.BackButton.onClick(() => { if (S.tab === "wizard") { const w = wzState(); if (w.step > 1) { w.step--; return renderWizard(); } setAccent(S.app.accent); return go("plan"); } go("home"); }); } } catch (e) {}
   try {
     const r = await api("boot");
-    Object.assign(S, { app: r.app, user: r.user, colors: r.colors, styles: r.styles, price: r.price, trial: r.trial, bots: r.bots, draft: r.draft, ideas: r.ideas, topup: r.topup });
+    Object.assign(S, { app: r.app, user: r.user, colors: r.colors, styles: r.styles, price: r.price, trial: r.trial, bots: r.bots, draft: r.draft, ideas: r.ideas, topup: r.topup,
+      pay: r.pay || { stars: 0, crypto: [], sbp: true } });
     setAccent(S.app.accent);
     document.title = plain(S.app.texts.app_title) || "Конструктор";
     $("#loader").remove();
     const start = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || "";
-    go(location.hash.startsWith("#create") || start === "create" ? "wizard" : "home");
+    go(location.hash.startsWith("#create") || start === "create" ? "plan" : "home");
   } catch (e) {
     const ld = $("#loader"); if (ld) ld.remove();
     if (e.data && e.data.error === "sub") return showGate(e.data.sub);
@@ -608,14 +648,16 @@ function showGate(sub) {
 /* ---------- демо (открыто не из Telegram): данные для предпросмотра ---------- */
 function demoApi(path, body) {
   if (path !== "boot") return new Promise((res) => setTimeout(() => res({ ok: true, balance: 0, bots: [] }), 300));
-  const T0 = { app_title: "heliys конструктор", app_sub: "Свой магазин в Telegram за 5 минут", app_badge: "Конструктор", app_create: "Создать бота", app_create_sub: "Магазин как @heliys_shop_bot — со своим цветом, стилем и приветствием", app_feat_title: "Что будет в твоём боте", app_feat1: "Мини-приложение с витриной, поиском и избранным", app_feat2: "Автовыдача товаров 24/7", app_feat3: "Оплата СБП, звёздами, CryptoBot и xRocket", app_feat4: "Поддержка, рефералы, промокоды, статусы", app_feat5: "Админ-панель: тексты, кнопки, премиум-эмодзи", app_feat6: "Личный куратор: поможет с рекламным текстом, товарами и настройкой", app_home: "Главная", app_bots: "Мои боты", app_profile: "Профиль", app_balance: "Баланс", app_topup: "Пополнить", app_support: "Поддержка", app_no_bots: "Пока нет ботов — создай первый", app_step1: "Выбери цвет", app_step1_sub: "Основной цвет кнопок и акцентов витрины", app_custom: "Ввести свой цвет", app_step2: "Выбери стиль", app_step2_sub: "Анимация и значок на главной карточке", app_step3: "Заголовок витрины", app_step3_sub: "Название магазина на главной карточке", app_step4: "Описание витрины", app_step4_sub: "Что продаёшь и почему у тебя — выбери вариант или напиши своё", app_next: "Далее", app_back: "Назад", app_finish: "Продолжить в чате", app_finish_hint: "Дальше бот попросит приветствие, поддержку и токен", app_preview: "Так будет выглядеть витрина", app_trial: "3 дня бесплатно", app_price: "Навсегда — 300₽", app_topup_title: "Пополнение баланса", app_topup_hint: "Реквизиты СБП придут в чат с ботом, чек проверит админ" };
-  const icons = {}; ["badge", "create", "bots", "topup", "support", "feat", "trial", "home", "profile"].forEach((k) => icons[k] = { e: "", id: null });
+  const T0 = { app_title: "heliys конструктор", app_sub: "Свой магазин в Telegram за 5 минут", app_badge: "Конструктор", app_create: "Создать бота", app_create_sub: "Магазин как @heliys_shop_bot — со своим цветом, стилем и приветствием", app_feat_title: "Что будет в твоём боте", app_feat1: "Мини-приложение с витриной, поиском и избранным", app_feat2: "Автовыдача товаров 24/7", app_feat3: "Оплата СБП, звёздами, CryptoBot и xRocket", app_feat4: "Поддержка, рефералы, промокоды, статусы", app_feat5: "Админ-панель: тексты, кнопки, премиум-эмодзи", app_feat6: "Личный куратор: поможет с рекламным текстом, товарами и настройкой", app_home: "Главная", app_bots: "Мои боты", app_profile: "Профиль", app_balance: "Баланс", app_topup: "Пополнить", app_support: "Поддержка", app_no_bots: "Пока нет ботов — создай первый", app_step1: "Выбери цвет", app_step1_sub: "Основной цвет кнопок и акцентов витрины", app_custom: "Ввести свой цвет", app_step2: "Выбери стиль", app_step2_sub: "Анимация и значок на главной карточке", app_step3: "Заголовок витрины", app_step3_sub: "Название магазина на главной карточке", app_step4: "Описание витрины", app_step4_sub: "Что продаёшь и почему у тебя — выбери вариант или напиши своё", app_next: "Далее", app_back: "Назад", app_finish: "Продолжить в чате", app_finish_hint: "Дальше бот попросит приветствие, поддержку и токен", app_preview: "Так будет выглядеть витрина", app_trial: "3 дня бесплатно", app_price: "Навсегда — 300₽", app_topup_title: "Пополнение баланса", app_topup_hint: "Реквизиты СБП придут в чат с ботом, чек проверит админ",
+    app_plan_title: "Как запустим магазин?", app_plan_trial: "Пробный период", app_plan_trial_sub: "3 дня бесплатно — понравится, купишь", app_plan_used: "Пробный период уже использован",
+    app_plan_buy: "Купить навсегда", app_plan_buy_sub: "Оплата после настройки магазина", app_buy_sent: "Способы оплаты отправлены в чат с ботом" };
+  const icons = {}; ["badge", "create", "bots", "topup", "support", "feat", "trial", "home", "profile", "buy", "stars", "crypto", "sbp"].forEach((k) => icons[k] = { e: "", id: null });
   const seasons = [["halloween", "🎃 Хэллоуин", "Хэллоуин"], ["newyear", "🎄 Новый год", "Новый год"], ["winter", "❄️ Зима", "Зима"], ["autumn", "🍂 Осень", "Осень"], ["spring", "🌸 Весна", "Весна"], ["summer", "☀️ Лето", "Лето"], ["valentine", "💘 День влюблённых", "14 февраля"], ["none", "⚪ Без стиля", ""]];
   return Promise.resolve({ ok: true,
     app: { texts: T0, icons, accent: "#8b5cf6", season: "halloween", season_badge: "Хэллоуин", bg: null, bot: "heliys_constructor_bot", support: "https://t.me/apfov" },
     colors: [["red", "Красный", "#ef4444", "#ef4444"], ["blue", "Синий", "#3b82f6", "#3b82f6"], ["green", "Зелёный", "#22c55e", "#22c55e"], ["purple", "Фиолетовый", "#8b5cf6", "#8b5cf6"], ["black", "Чёрный", "#e4e4e7", "#111111"], ["orange", "Оранжевый", "#f97316", "#f97316"]].map(([id, name, hex, swatch]) => ({ id, name, hex, swatch })),
     styles: seasons.map(([id, name, badge]) => ({ id, name, badge })),
-    price: 300, trial: { on: true, days: 3, text: "3 дня" },
+    price: 300, trial: { on: true, days: 3, text: "3 дня" }, pay: { stars: 150, crypto: ["cryptobot"], sbp: true },
     user: { id: 1, first_name: "Демо", username: "demo", balance: 150, is_admin: false },
     bots: [{ id: 7, username: "snowshop_bot", status: "running", status_text: "работает", trial_until: "04.11 18:20", can_buy: true }],
     draft: {}, ideas: ["Цифровые товары с автовыдачей 24/7 — быстро, честно, с гарантией", "наш магазин: аккаунты, подписки и ключи по лучшим ценам", "Моментальная выдача после оплаты, поддержка всегда на связи", "Оплата СБП, звёздами и криптой. Выдача за секунды"],

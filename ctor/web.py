@@ -140,12 +140,14 @@ async def boot(request):
         "colors": [{"id": k, "name": v[0], "hex": v[1], "swatch": v[2]} for k, v in core.COLORS.items()],
         "styles": [{"id": k, "name": v[0], "badge": v[1], "accent": v[3]} for k, v in appcfg.SEASONS.items()],
         "price": core.price(),
+        "pay": {"stars": core.stars_price() if core.pay_on("stars") else 0,
+                "crypto": [m for m in ("cryptobot", "xrocket") if core.pay_on(m)], "sbp": core.pay_on("sbp")},
         "trial": {"on": cbot.trial_free(uid), "days": core.trial_days(), "text": days},
         "user": {"id": uid, "first_name": u["first_name"], "username": u["username"],
                  "photo_url": tg.get("photo_url"), "balance": round(u["balance"] or 0, 2),
                  "is_admin": uid in __import__("config").ADMINS},
         "bots": _bots(uid),
-        "draft": {k: d.get(k) for k in ("color", "hex", "style", "title", "desc")},
+        "draft": {k: d.get(k) for k in ("color", "hex", "style", "title", "desc", "plan")},
         "ideas": core.desc_ideas(d.get("title")),
         "topup": {"min": core.topup_min(), "amounts": [a for a in (100, 300, 500, 1000, 2000) if a >= core.topup_min()]},
     }
@@ -187,6 +189,8 @@ async def save_draft(request):
         return jerr("desc", "Напишите описание")
     d, _ = core.draft(uid)
     d.update(color=color, style=style, title=title, desc=desc)
+    plan = str(body.get("plan") or "")
+    d["plan"] = "trial" if plan == "trial" and cbot.trial_ok(uid, d) else "buy"
     if color == "custom":
         d["hex"] = hx
     else:
@@ -225,13 +229,11 @@ async def buy(request):
         bid = int(body.get("bot"))
     except (TypeError, ValueError):
         return jerr("bad", "Бот не найден")
-    res = await cbot.buy_bot(tg["id"], bid)
-    if res == "no_money":
-        return jerr("no_money", f"Не хватает на балансе — нужно {core.money(core.price())}")
-    if res != "ok":
-        return jerr(res, "Бот уже куплен или занят — обновите страницу")
-    u = core.user(tg["id"])
-    return web.json_response({"ok": True, "balance": round(u["balance"] or 0, 2), "bots": _bots(tg["id"])})
+    b = db.hosted(bid)
+    if not b or b["user_id"] != tg["id"] or not b["trial_until"]:
+        return jerr("bad", "Бот уже куплен — обновите страницу")
+    await cbot.pay_menu(tg["id"], tg["id"], "buy", bid)  # способы оплаты — в чат с ботом
+    return web.json_response({"ok": True})
 
 
 async def page(request):

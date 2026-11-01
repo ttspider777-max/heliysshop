@@ -61,6 +61,8 @@ async def route_back(call: CallbackQuery, target):
         return await welcome_view(call)
     if target == "ca:usr":
         return await users_view(call)
+    if target == "ca:pay":
+        return await pay_view(call)
     if target.startswith("ca:ic:"):
         return await icon_view(call, target[6:])
     await home(call)
@@ -76,17 +78,21 @@ def stats():
                     "AND status='running'") or 0
     bal = db.val("SELECT COALESCE(SUM(balance),0) FROM ctor_users") or 0
     topped = db.val("SELECT COALESCE(SUM(amount),0) FROM ctor_topups WHERE status='done'") or 0
-    pending = db.val("SELECT COUNT(*) FROM ctor_topups WHERE status='pending'") or 0
+    pending = (db.val("SELECT COUNT(*) FROM ctor_topups WHERE status='pending'") or 0) + \
+        (db.val("SELECT COUNT(*) FROM ctor_payments WHERE status='pending'") or 0)
     return users, today, bots, run, trials, bal, topped, pending
 
 
 async def home(target, prefix=""):
     users, today, bots, run, trials, bal, topped, pending = stats()
     from ctor import bot as cbot
+    paid_n = db.val("SELECT COUNT(*) FROM ctor_payments WHERE status='paid'") or 0
+    paid_rub = db.val("SELECT COALESCE(SUM(amount),0) FROM ctor_payments WHERE status='paid' AND method!='stars'") or 0
+    paid_stars = db.val("SELECT COALESCE(SUM(stars),0) FROM ctor_payments WHERE status='paid' AND method='stars'") or 0
     text = (f"{prefix}⚙️ <b>Админ-панель конструктора</b> @{html.escape(cbot.username() or '?')}\n\n<blockquote>"
             f"👥 Пользователей: <b>{users}</b> (+{today} сегодня)\n"
             f"🤖 Магазинов: <b>{bots}</b> · работает {run} · на пробном {trials}\n"
-            f"💳 Пополнено: <b>{money(topped)}</b> · на балансах {money(bal)}\n"
+            f"💰 Оплат: <b>{paid_n}</b> на <b>{money(paid_rub)}</b> + {paid_stars} ⭐\n"
             f"🔎 Чеков на проверке: <b>{pending}</b></blockquote>\n\n"
             f"💰 Цена бота: <b>{money(core.price())}</b> · 🎁 Пробный: <b>{core.trial_days() or 'выкл'}</b>"
             f"{' дн.' if core.trial_days() else ''}")
@@ -98,6 +104,7 @@ async def home(target, prefix=""):
         [B("👋 Приветствие", "ca:wel"), B("🔘 Кнопки", "ca:btns")],
         [B("📝 Тексты бота", "ca:txl:0"), B("📱 Мини-приложение", "ca:app", style="primary")],
         [B("💰 Цена", "ca:v:price"), B("🎁 Пробный период", "ca:v:trial_days")],
+        [B("💳 Оплата: звёзды, крипта, СБП", "ca:pay", style="primary")],
         [B("💳 Реквизиты СБП", "ca:v:sbp"), B("💬 Поддержка", "ca:v:support_url")],
         [B("💵 Мин. пополнение", "ca:v:topup_min"), B("🌐 Адрес сайта", "ca:v:site")],
         [B("👨‍💼 Куратор", "ca:v:curator")],
@@ -460,6 +467,10 @@ VALUES = {
                                "<code>-</code> — как в основном боте."),
     "support_url": ("💬 Поддержка", "Отправьте ссылку или @username поддержки конструктора. "
                                    "<code>-</code> — как в основном боте."),
+    "stars_price": ("⭐ Цена в звёздах", "Сколько звёзд стоит бот? Отправьте число (например <code>150</code>). "
+                                        "<code>0</code> — считать автоматически из цены в ₽."),
+    "usdt_rate": ("💱 Курс USDT", "Курс 1 USDT в рублях для счетов xRocket (например <code>95</code>). "
+                                 "<code>0</code> — брать курс из CryptoBot."),
     "curator": ("👨‍💼 Куратор", "Отправьте @username или ссылку куратора — после создания магазина бот напишет "
                                "владельцу «Напиши своему куратору» с этой ссылкой. <code>-</code> — как поддержка.\n\n"
                                "Текст сообщения меняется в «📝 Тексты бота» → «Сообщение о кураторе»."),
@@ -480,10 +491,12 @@ async def cb_value(call: CallbackQuery):
     cur = {"price": money(core.price()), "trial_days": core.trial_days(), "sbp": core.sbp(),
            "support_url": html.escape(core.support_url() or "—"), "topup_min": money(core.topup_min()),
            "curator": html.escape(core.curator() or "—"),
+           "stars_price": f"{core.stars_price()} ⭐", "usdt_rate": db.get_setting("crypto_usdt_rate") or "авто",
            "app_accent": core.get("app_accent") or "#8b5cf6",
            "site": html.escape(appcfg.public_url() or "не задан")}[key]
     await ask(call, "value", f"<b>{name}</b>\n\nСейчас: {cur}\n\n{prompt}",
-              cancel="ca:app" if key == "app_accent" else "ca:home", key=key)
+              cancel="ca:app" if key == "app_accent" else "ca:pay" if key in ("stars_price", "usdt_rate") else "ca:home",
+              key=key)
 
 
 # ======================= магазины клиентов =======================
@@ -721,6 +734,117 @@ async def _sub_add(m: Message, txt, bot: Bot):
     return True, ""
 
 
+# ======================= оплата =======================
+def _onoff(v):
+    return "✅ вкл" if v else "⏸ выкл"
+
+
+async def pay_view(target, prefix=""):
+    import crypto
+    text = (f"{prefix}💳 <b>Оплата магазинов</b>\n\nЦена: <b>{money(core.price())}</b> · звёздами "
+            f"<b>{core.stars_price()} ⭐</b>\n🎁 Пробный: <b>{core.trial_days() or 'выкл'}</b>"
+            f"{' дн.' if core.trial_days() else ''}\n\n<blockquote>"
+            f"⭐ Звёзды Telegram: {_onoff(core.pay_on('stars'))}\n"
+            f"💎 CryptoBot: {'✅ подключён' if crypto.token('cryptobot') else '— нет ключа'}"
+            f"{'' if not crypto.token('cryptobot') else ' · ' + _onoff(crypto.enabled('cryptobot'))}\n"
+            f"🚀 xRocket: {'✅ подключён' if crypto.token('xrocket') else '— нет ключа'}"
+            f"{'' if not crypto.token('xrocket') else ' · ' + _onoff(crypto.enabled('xrocket'))}\n"
+            f"💳 СБП (чек → вы принимаете): {_onoff(core.pay_on('sbp'))}</blockquote>\n\n"
+            "Премиум-эмодзи на кнопках оплаты — в «🔘 Кнопки» (Пробный период, Оплата звёздами, CryptoBot, "
+            "xRocket, СБП), в мини-приложении — «📱 Мини-приложение → 💎 Иконки».")
+    await render(target, text, kb([
+        [B(f"⭐ Звёзды: {_onoff(core.pay_on('stars'))}", "ca:ptog:stars"), B("⭐ Цена в звёздах", "ca:v:stars_price")],
+        [B(f"💳 СБП: {_onoff(core.pay_on('sbp'))}", "ca:ptog:sbp"), B("💳 Реквизиты", "ca:v:sbp")],
+        [B("💎 CryptoBot — API-токен", "ca:cr:cryptobot"), B("🚀 xRocket — API-токен", "ca:cr:xrocket")],
+        [B("💱 Курс USDT (xRocket)", "ca:v:usdt_rate"), B("💰 Цена в ₽", "ca:v:price")],
+        back(),
+    ]))
+
+
+@router.callback_query(F.data == "ca:pay")
+async def cb_pay(call: CallbackQuery):
+    await pay_view(call)
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("ca:ptog:"))
+async def cb_pay_toggle(call: CallbackQuery):
+    m = call.data[8:]
+    core.put("pay_off:" + m, None if core.get("pay_off:" + m) == "1" else "1")
+    await pay_view(call)
+    await call.answer("Готово")
+
+
+async def crypto_view(target, method, prefix=""):
+    import crypto
+    name = crypto.SERVICES[method]
+    has = bool(crypto.token(method))
+    how = ("CryptoBot: откройте @CryptoBot → Crypto Pay → Создать приложение → скопируйте API-токен."
+           if method == "cryptobot" else
+           "xRocket: откройте @xRocket → Rocket Pay → Создать приложение → скопируйте API-ключ.")
+    text = (f"{prefix}{'💎' if method == 'cryptobot' else '🚀'} <b>{name}</b>\n\nСтатус: "
+            f"<b>{('✅ подключён · ' + _onoff(crypto.enabled(method))) if has else 'не подключён'}</b>\n\n{how}\n\n"
+            "Ключ хранится в базе бота, не в коде.")
+    rows = [[B("🔑 Вставить API-токен" if not has else "🔑 Заменить токен", f"ca:crk:{method}", style="primary")]]
+    if has:
+        rows.append([B("⏸ Выключить" if crypto.enabled(method) else "▶️ Включить", f"ca:crt:{method}"),
+                     B("🗑 Удалить ключ", f"ca:crd:{method}", style="danger")])
+    rows.append(back("ca:pay", "◀️ К оплате"))
+    await render(target, text, kb(rows))
+
+
+@router.callback_query(F.data.startswith("ca:cr:"))
+async def cb_crypto(call: CallbackQuery):
+    await crypto_view(call, call.data[6:])
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("ca:crk:"))
+async def cb_crypto_key(call: CallbackQuery):
+    method = call.data[7:]
+    await ask(call, "crkey", "🔑 Отправьте API-токен — я проверю его и сразу удалю сообщение.",
+              cancel="ca:pay", method=method)
+
+
+@router.callback_query(F.data.startswith("ca:crt:"))
+async def cb_crypto_toggle(call: CallbackQuery):
+    import crypto
+    method = call.data[7:]
+    db.set_setting(f"crypto_on:{method}", "0" if crypto.enabled(method) else "1")
+    await crypto_view(call, method)
+    await call.answer("Готово")
+
+
+@router.callback_query(F.data.startswith("ca:crd:"))
+async def cb_crypto_del(call: CallbackQuery):
+    method = call.data[7:]
+    db.set_setting(f"crypto_token:{method}", None)
+    await crypto_view(call, method, "🗑 Ключ удалён.\n\n")
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("ca:pok:") | F.data.startswith("ca:pno:"))
+async def cb_payment_receipt(call: CallbackQuery):
+    """Чек СБП: ✅ Принять — бот создаёт магазин (или делает бессрочным); ❌ Отклонить — заявка отклонена."""
+    from ctor import bot as cbot
+    ok = call.data.startswith("ca:pok:")
+    pid = int(call.data[7:])
+    p = core.payment(pid)
+    if not p or p["status"] != "pending":
+        await mark_admin_msg(call, f"ℹ️ Уже обработана: {p['status'] if p else '—'}")
+        return await call.answer("Уже обработана", show_alert=True)
+    who = html.escape(call.from_user.first_name or "admin")
+    if ok:
+        await call.answer("Принято — создаю")
+        await mark_admin_msg(call, f"✅ Принято ({who})")
+        await cbot.on_paid(pid, p["receipt"])
+    else:
+        core.set_payment(pid, status="rejected")
+        await cbot.send(p["user_id"], core.tx("pay_rejected", id=pid), kb([[cbot.B("support", "c:sup")]]))
+        await mark_admin_msg(call, f"❌ Отклонено ({who})")
+        await call.answer("Отклонено")
+
+
 # ======================= рассылка =======================
 @router.callback_query(F.data == "ca:bc")
 async def cb_broadcast(call: CallbackQuery):
@@ -811,6 +935,24 @@ async def on_input(m: Message, bot: Bot):
         core.put("t:" + w["key"], body)
         finish()
         return await text_view(m, w["key"], "✅ Сохранено.\n\n")
+    if act == "crkey":
+        import crypto
+        method = w["method"]
+        try:
+            await m.delete()
+        except Exception:
+            pass
+        tok = txt.strip()
+        if not tok or " " in tok:
+            return await m.answer("Отправьте токен одним словом:")
+        try:
+            info = await crypto.test(method, tok)
+        except Exception as e:
+            return await m.answer(f"❌ Ключ не подошёл: {html.escape(str(e))[:200]}\n\nОтправьте другой:")
+        db.set_setting(f"crypto_token:{method}", tok)
+        db.set_setting(f"crypto_on:{method}", "1")
+        finish()
+        return await crypto_view(m, method, f"✅ Подключено: {info}\n\n")
     if act == "subadd":
         ok, msg = await _sub_add(m, txt, bot)
         if not ok:
@@ -880,6 +1022,16 @@ async def _on_value(m, w, txt, finish):
         if v < 0 or (key == "topup_min" and v < 1):
             return await m.answer("Слишком мало. Ещё раз:")
         core.put(key, v)
+    elif key == "stars_price":
+        if not txt.isdigit() or int(txt) > 100000:
+            return await m.answer("Нужно целое число звёзд:")
+        core.put(key, int(txt) or None)
+    elif key == "usdt_rate":
+        try:
+            v = round(float(txt.replace(",", ".")), 2)
+        except ValueError:
+            return await m.answer("Нужно число:")
+        db.set_setting("crypto_usdt_rate", v or None)
     elif key == "trial_days":
         if not txt.isdigit() or int(txt) > 365:
             return await m.answer("Нужно целое число от 0 до 365:")
@@ -912,4 +1064,6 @@ async def _on_value(m, w, txt, finish):
     finish()
     if key == "app_accent":
         return await app_view(m, "✅ Сохранено.\n\n")
+    if key in ("stars_price", "usdt_rate"):
+        return await pay_view(m, "✅ Сохранено.\n\n")
     await home(m, "✅ Сохранено.\n\n")

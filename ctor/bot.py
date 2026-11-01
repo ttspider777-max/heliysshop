@@ -41,7 +41,7 @@ _task = None
 _busy = set()     # кто сейчас создаёт магазин (защита от двойного нажатия)
 _tok_busy = set()
 
-INPUT_STEPS = {"hex", "title", "desc", "welcome", "support", "token", "retoken", "amount", "receipt"}
+INPUT_STEPS = {"hex", "title", "desc", "welcome", "support", "token", "retoken", "amount", "receipt", "payreceipt"}
 
 
 # ======================= запуск =======================
@@ -268,8 +268,7 @@ def menu_kb(uid):
     url = app_url()
     # одна кнопка мини-приложения; создание магазина — внутри него (без сайта — мастер в чате)
     rows = [[B("app", web_app=url) if url else B("create", "c:new")]]
-    rows.append([B("bots", "c:bots"), B("topup", "c:top")])
-    rows.append([B("support", "c:sup")])
+    rows.append([B("bots", "c:bots"), B("support", "c:sup")])
     if uid in config.ADMINS:
         rows.append([raw_btn("⚙️ Админ-панель", "ca:home", style="danger")])
     return kb(rows)
@@ -391,10 +390,10 @@ def summary_text(uid, d):
     welcome_note = "✅ своё" if d.get("welcome") and not d.get("welcome_default") else "✨ готовое"
     if d.get("wmedia"):
         welcome_note += {"photo": " · с фото", "video": " · с видео", "animation": " · с GIF"}.get(d["wmedia"][0], "")
-    if trial_free(uid) and not db.trial_used(tg_id=d.get("tg_id")):
+    if d.get("plan") == "trial" and trial_ok(uid, d):
         pay = tx("pay_trial", days=days_text(), price=money(core.price()))
     else:
-        pay = tx("pay_price", price=money(core.price()), balance=money(u["balance"] if u else 0))
+        pay = tx("pay_price", price=money(core.price()), stars=core.stars_price())
     return (tx("summary") + "\n\n<blockquote>"
             f"🎨 Цвет: <b>{html.escape(core.color_label(d))}</b>\n"
             f"🎭 Стиль: <b>{html.escape(core.style_label(d))}</b>\n"
@@ -614,6 +613,8 @@ async def on_step_input(m: Message, bot: Bot):
         return await on_token(m, d, step)
     if step == "amount":
         return await on_amount(m, txt)
+    if step == "payreceipt":
+        return await on_pay_receipt(m, d, bot)
     if step == "receipt":
         return await on_receipt(m, d, bot)
 
@@ -671,9 +672,15 @@ async def _retoken(wait, uid, d, token, me):
                          reply_markup=kb([[raw_btn(f"🤖 @{b['username']}", url=f"https://t.me/{b['username']}")]]))
 
 
-# ======================= создание магазина =======================
+# ======================= создание магазина и оплата =======================
+def trial_ok(uid, d=None):
+    """Пробный период доступен: включён, человек его не брал и этот Telegram-бот на пробе не был."""
+    return trial_free(uid) and not (d and d.get("tg_id") and db.trial_used(tg_id=d["tg_id"]))
+
+
 @router.callback_query(F.data == "c:ok")
-async def cb_confirm(call: CallbackQuery, bot: Bot):
+async def cb_confirm(call: CallbackQuery):
+    """«✅ Всё верно»: пробный (если выбран в мини-приложении) или выбор способа оплаты."""
     uid = call.from_user.id
     if uid in _busy:
         return await call.answer(core.plain(tx("busy")), show_alert=True)
@@ -681,30 +688,292 @@ async def cb_confirm(call: CallbackQuery, bot: Bot):
     if core.next_step(d) != "confirm":
         await call.answer()
         return await advance(call, uid, d)
-    _busy.add(uid)
-    try:
-        await create_shop(call, uid, d, bot)
-    finally:
-        _busy.discard(uid)
-
-
-async def create_shop(call: CallbackQuery, uid, d, bot: Bot):
     if db.hosted_by_tg(d["tg_id"]):  # пока проверяли данные, бота подключили в другом месте
         for k in ("token", "tg_id", "username", "bot_name"):
             d.pop(k, None)
         await call.answer(core.plain(tx("token_taken")), show_alert=True)
         return await advance(call, uid, d)
-    trial = trial_free(uid) and not db.trial_used(tg_id=d["tg_id"])
-    pr = core.price()
-    if not trial and pr > 0 and not core.take_balance(uid, pr):
-        u = core.user(uid)
-        await call.answer()
-        return await out(call, tx("no_money", price=money(pr), balance=money(u["balance"] if u else 0)),
-                         kb([[B("topup", "c:top")], [B("back", "c:sum")]]))
+    if d.get("plan") == "trial" and trial_ok(uid, d):
+        return await start_trial(call, uid, d)
     await call.answer()
-    await out(call, tx("creating"))
+    await pay_menu(call, uid, "create")
+
+
+@router.callback_query(F.data == "c:trial")
+async def cb_trial(call: CallbackQuery):
+    uid = call.from_user.id
+    d, _ = core.draft(uid)
+    if core.next_step(d) != "confirm":
+        await call.answer()
+        return await advance(call, uid, d)
+    if not trial_ok(uid, d):
+        return await call.answer(core.plain(tx("app_plan_used")), show_alert=True)
+    await start_trial(call, uid, d)
+
+
+async def start_trial(call: CallbackQuery, uid, d):
+    if uid in _busy:
+        return await call.answer(core.plain(tx("busy")), show_alert=True)
+    _busy.add(uid)
+    try:
+        await call.answer()
+        await out(call, tx("creating"))
+        await do_create(uid, d, trial=True)
+    finally:
+        _busy.discard(uid)
+
+
+def pay_kb(uid, kind, bid=0, with_trial=False):
+    tag = f"{'c' if kind == 'create' else 'b'}:{bid}"
+    rows = []
+    if with_trial:
+        rows.append([B("trial", "c:trial", text=f"{bt('trial')} — {days_text()}")])
+    if core.pay_on("stars"):
+        rows.append([B("pay_stars", f"c:pm:stars:{tag}", text=f"{bt('pay_stars')} · {core.stars_price()} ⭐")])
+    crypto_row = [B(f"pay_{m}", f"c:pm:{m}:{tag}") for m in ("cryptobot", "xrocket") if core.pay_on(m)]
+    if crypto_row:
+        rows.append(crypto_row)
+    if core.pay_on("sbp"):
+        rows.append([B("pay_sbp", f"c:pm:sbp:{tag}", text=f"{bt('pay_sbp')} · {money(core.price())}")])
+    u = core.user(uid)
+    if u and core.price() > 0 and (u["balance"] or 0) >= core.price():
+        rows.append([B("pay_balance", f"c:pm:balance:{tag}", text=f"{bt('pay_balance')} · {money(u['balance'])}")])
+    rows.append([B("back", "c:sum" if kind == "create" else "c:bots")])
+    return rows
+
+
+async def pay_menu(target, uid, kind, bid=0):
+    """Выбор способа оплаты: новый магазин (kind=create) или покупка пробного навсегда (kind=buy)."""
+    d, _ = core.draft(uid)
+    with_trial = kind == "create" and trial_ok(uid, d)
+    rows = pay_kb(uid, kind, bid, with_trial)
+    if len(rows) == 1 + (1 if with_trial else 0) and not with_trial:
+        return await out(target, tx("pay_none"), kb([[B("support", "c:sup")], rows[-1]]))
+    if kind == "create":
+        text = tx("pay_choose", price=money(core.price()), stars=core.stars_price(),
+                  trial=tx("pay_trial_line", days=days_text()) if with_trial else "")
+    else:
+        b = db.hosted(bid)
+        text = tx("pay_choose_buy", username=html.escape((b["username"] if b else "") or "?"),
+                  price=money(core.price()), stars=core.stars_price())
+    await out(target, text, kb(rows))
+
+
+@router.callback_query(F.data.startswith("c:pm:"))
+async def cb_pay_method(call: CallbackQuery, bot: Bot):
+    """c:pm:<способ>:<c|b>:<id магазина для покупки>"""
+    uid = call.from_user.id
+    try:
+        _, _, method, k, bid = call.data.split(":")
+        bid = int(bid)
+    except ValueError:
+        return await call.answer()
+    kind = "create" if k == "c" else "buy"
+    if method != "balance" and not core.pay_on(method):
+        return await call.answer("Этот способ оплаты сейчас выключен", show_alert=True)
+    data = None
+    if kind == "create":
+        d, _ = core.draft(uid)
+        if core.next_step(d) != "confirm":
+            await call.answer()
+            return await advance(call, uid, d)
+        if db.hosted_by_tg(d["tg_id"]):
+            return await call.answer(core.plain(tx("token_taken")), show_alert=True)
+        data = d
+    else:
+        b = db.hosted(bid)
+        if not b or b["user_id"] != uid or not b["trial_until"]:
+            return await call.answer("Этот бот уже куплен 🙂", show_alert=True)
+    price = core.price()
+    stars = core.stars_price()
+    pid = core.create_payment(uid, kind, method, price, stars, bid or None, data)
+    await call.answer()
+
+    if method == "balance":
+        if price > 0 and not core.take_balance(uid, price):
+            core.set_payment(pid, status="canceled")
+            return await call.answer("На балансе не хватает", show_alert=True)
+        return await on_paid(pid, "balance")
+
+    if method == "stars":
+        from aiogram.types import LabeledPrice
+        title = core.plain(tx("stars_title"))[:32] or "Магазин"
+        desc = core.plain(tx("stars_desc"))[:255] or "Магазин"
+        if kind == "buy":
+            b = db.hosted(bid)
+            desc = f"@{b['username']} — навсегда"[:255]
+        try:
+            await bot.send_invoice(uid, title=title, description=desc, payload=f"ctor:{pid}", currency="XTR",
+                                   prices=[LabeledPrice(label=title, amount=stars)])
+        except Exception as e:
+            log.warning("конструктор: счёт звёздами не выставлен: %s", e)
+            core.set_payment(pid, status="canceled")
+            return await out(call, "⚠️ Не получилось выставить счёт звёздами — выбери другой способ.",
+                             kb(pay_kb(uid, kind, bid)))
+        return
+
+    if method in ("cryptobot", "xrocket"):
+        import crypto
+        try:
+            inv, extra = await crypto.create("ctor", pid, uid, method, price, core.plain(tx("stars_desc")))
+        except Exception as e:
+            log.warning("конструктор: счёт %s не выставлен: %s", method, e)
+            core.set_payment(pid, status="canceled")
+            return await out(call, f"⚠️ {core.PAY_NAMES[method]} сейчас не отвечает — выбери другой способ.",
+                             kb(pay_kb(uid, kind, bid)))
+        core.set_payment(pid, inv_id=inv["id"])
+        return await out(call, tx("pay_crypto", service=core.PAY_NAMES[method], price=money(price), extra=extra), kb([
+            [B("pay_open", url=inv["url"])],
+            [B("pay_check", f"c:pchk:{pid}")],
+            [B("cancel", f"c:pcan:{pid}")],
+        ]))
+
+    # СБП
+    await out(call, tx("pay_sbp", id=pid, price=money(price), details=core.sbp()), kb([
+        [B("paid", f"c:psent:{pid}")],
+        [B("cancel", f"c:pcan:{pid}")],
+    ]))
+
+
+@router.pre_checkout_query()
+async def on_pre_checkout(q, bot: Bot):
+    """Telegram спрашивает перед списанием звёзд: заявка ещё ждёт оплаты?"""
+    ok = False
+    if (q.invoice_payload or "").startswith("ctor:"):
+        p = core.payment(int(q.invoice_payload[5:] or 0))
+        ok = bool(p and p["status"] == "wait" and p["method"] == "stars" and p["user_id"] == q.from_user.id
+                  and q.currency == "XTR" and q.total_amount == p["stars"])
+    await q.answer(ok=ok, error_message=None if ok else "Счёт устарел — выбери оплату заново.")
+
+
+@router.message(F.successful_payment)
+async def on_stars_paid(m: Message):
+    sp = m.successful_payment
+    if not (sp.invoice_payload or "").startswith("ctor:"):
+        return
+    await on_paid(int(sp.invoice_payload[5:]), f"stars:{sp.telegram_payment_charge_id}")
+
+
+@router.callback_query(F.data.startswith("c:pchk:"))
+async def cb_pay_check(call: CallbackQuery, bot: Bot):
+    import crypto
+    p = core.payment(int(call.data[7:]))
+    if not p or p["user_id"] != call.from_user.id:
+        return await call.answer()
+    if p["status"] == "paid":
+        return await call.answer("Уже оплачено ✅")
+    res = await crypto.check(bot, p["inv_id"], call.from_user.id) if p["inv_id"] else "not_found"
+    if res == "paid":
+        return await call.answer("Оплата получена ✅")
+    if res == "expired":
+        return await call.answer(core.plain(tx("pay_crypto_expired")), show_alert=True)
+    await call.answer(core.plain(tx("pay_crypto_wait")), show_alert=True)
+
+
+@router.callback_query(F.data.startswith("c:pcan:"))
+async def cb_pay_cancel(call: CallbackQuery):
+    uid = call.from_user.id
+    p = core.payment(int(call.data[7:]))
+    if p and p["user_id"] == uid and p["status"] == "wait":
+        core.set_payment(p["id"], status="canceled")
+    d, step = core.draft(uid)
+    if step == "payreceipt":
+        d.pop("_pid", None)
+        core.save_draft(uid, d, "confirm" if core.next_step(d) == "confirm" else None)
+    await call.answer(core.plain(tx("pay_canceled")))
+    if p and p["kind"] == "buy":
+        return await bots_view(call, uid)
+    await advance(call, uid)
+
+
+@router.callback_query(F.data.startswith("c:psent:"))
+async def cb_pay_sent(call: CallbackQuery):
+    """СБП: «Я оплатил» -> ждём чек."""
+    uid = call.from_user.id
+    p = core.payment(int(call.data[8:]))
+    if not p or p["user_id"] != uid or p["status"] != "wait" or p["method"] != "sbp":
+        return await call.answer("Заявка уже обработана", show_alert=True)
+    d, _ = core.draft(uid)
+    d["_pid"] = p["id"]
+    core.save_draft(uid, d, "payreceipt")
+    await out(call, tx("pay_receipt"), kb([[B("cancel", f"c:pcan:{p['id']}")]]))
+    await call.answer()
+
+
+async def on_pay_receipt(m: Message, d, bot: Bot):
+    uid = m.from_user.id
+    if not (m.photo or m.document):
+        return await m.answer(tx("topup_need_receipt"))
+    p = core.payment(int(d.get("_pid") or 0))
+    d.pop("_pid", None)
+    core.save_draft(uid, d, "confirm" if core.next_step(d) == "confirm" else None)
+    if not p or p["user_id"] != uid or p["status"] != "wait":
+        return await m.answer("Заявка не найдена — выбери оплату заново.", reply_markup=kb([[B("menu", "c:menu")]]))
+    file_id = m.photo[-1].file_id if m.photo else m.document.file_id
+    core.set_payment(p["id"], status="pending", receipt=file_id)
+    u = core.user(uid)
+    if p["kind"] == "create":
+        data = json.loads(p["data"] or "{}")
+        what = f"🏗 Новый магазин @{html.escape(data.get('username') or '?')} · «{html.escape(data.get('title') or '')}»"
+    else:
+        b = db.hosted(p["bot_id"])
+        what = f"♾ Покупка навсегда: @{html.escape((b['username'] if b else '') or '?')}"
+    caption = (f"💳 <b>Оплата по СБП — заявка #{p['id']}</b>\n\n{what}\n👤 {core.user_link(u)}\n"
+               f"💰 Сумма: <b>{money(p['amount'])}</b>")
+    markup = kb([[raw_btn("✅ Принять", f"ca:pok:{p['id']}", style="success"),
+                  raw_btn("❌ Отклонить", f"ca:pno:{p['id']}", style="danger")]])
+    for aid in sorted(config.ADMINS):
+        try:
+            if m.photo:
+                await bot.send_photo(aid, file_id, caption=caption, reply_markup=markup)
+            else:
+                await bot.send_document(aid, file_id, caption=caption, reply_markup=markup)
+        except Exception as e:
+            log.warning("конструктор: чек админу %s не отправлен: %s", aid, e)
+    await m.answer(tx("pay_receipt_sent" if p["kind"] == "create" else "pay_receipt_sent_buy"),
+                   reply_markup=kb([[B("menu", "c:menu")]]))
+
+
+async def on_paid(pid, receipt):
+    """Оплата подтверждена (звёзды / крипта / СБП после «Принять» / баланс) — создаём магазин или продлеваем."""
+    if not core.mark_paid(pid, receipt):
+        return False
+    p = core.payment(pid)
+    uid = p["user_id"]
+    method = core.PAY_NAMES.get(p["method"], p["method"])
+    if p["kind"] == "buy":
+        from handlers import builder
+        b = db.hosted(p["bot_id"])
+        if not b:
+            return True
+        db.set_hosted(b["id"], price=p["amount"])
+        running_now = await builder.make_permanent(_bot, b)
+        name = html.escape(b["username"] or "?")
+        await out(uid, tx("bought", username=name), kb([
+            [raw_btn(f"🤖 @{b['username']}", url=f"https://t.me/{b['username']}", style="success")],
+            [B("bots", "c:bots"), B("menu", "c:menu")]]))
+        await to_admins(f"♾ <b>Бот куплен навсегда</b> — {method}\n\n🤖 @{name} · #{b['id']}\n"
+                        f"👤 {core.user_link(core.user(uid))}\n💰 {money(p['amount'])}"
+                        + (f" ({p['stars']} ⭐)" if p["method"] == "stars" else "")
+                        + ("" if running_now else "\n⚠️ Бот не запустился — смотрите лог."))
+        return True
+    d = json.loads(p["data"] or "{}")
+    await out(uid, tx("pay_ok"))
+    await do_create(uid, d, trial=False, price=p["amount"], method=method, stars=p["stars"] if p["method"] == "stars" else 0)
+    return True
+
+
+async def do_create(uid, d, trial, price=0, method="", stars=0):
+    """Создаёт магазин клиента из данных мастера и запускает его."""
     from handlers import builder
-    bid = db.create_hosted(uid, 0 if trial else pr)
+    u = core.user(uid)
+    if not d.get("token") or db.hosted_by_tg(d.get("tg_id") or 0):
+        await out(uid, "⚠️ Этот бот уже подключён к другому магазину. Напиши в поддержку — разберёмся"
+                       + (" (оплата сохранена)." if not trial else "."), kb([[B("support", "c:sup")]]))
+        return await to_admins(f"⚠️ Не удалось создать магазин после {'пробного' if trial else 'оплаты ' + method}: "
+                               f"бот @{html.escape(d.get('username') or '?')} уже занят.\n👤 {core.user_link(u)}"
+                               + ("" if trial else f"\n💰 {money(price)} — нужно вернуть или помочь вручную"))
+    bid = db.create_hosted(uid, 0 if trial else price)
     fields = dict(status="running", source="ctor", cfg=json.dumps(_public_cfg(d), ensure_ascii=False),
                   token=d["token"], tg_id=d["tg_id"], username=d["username"], shop_name=d.get("title") or d["username"],
                   started=db.now())
@@ -712,14 +981,15 @@ async def create_shop(call: CallbackQuery, uid, d, bot: Bot):
         fields.update(trial=1, trial_until=builder.add_days(core.trial_days()))
     db.set_hosted(bid, **fields)
     try:
-        await seed_shop(bid, d, bot)
+        await seed_shop(bid, d, _bot)
     except Exception:
         log.exception("конструктор: не записал настройки магазина #%s", bid)
     ok = await hosting.launch(bid)
-    core.drop_draft(uid)
+    cur, _ = core.draft(uid)
+    if not cur or cur.get("tg_id") == d.get("tg_id"):
+        core.drop_draft(uid)
     b = db.hosted(bid)
     name = html.escape(d["username"])
-    u = core.user(uid)
     if ok:
         note = tx("created_trial", until=builder.fmt_until(b["trial_until"])) if b["trial_until"] else ""
         await out(uid, tx("created", username=name, trial=note), kb([
@@ -732,7 +1002,7 @@ async def create_shop(call: CallbackQuery, uid, d, bot: Bot):
     await to_admins(f"🏗 <b>Магазин {'создан' if ok else 'создан, но НЕ запустился'}</b> через конструктор\n\n"
                     f"🆔 #{bid} · 🤖 @{name}\n👤 {core.user_link(u)}\n"
                     + (f"🎁 Пробный до {builder.fmt_until(b['trial_until'])}" if b["trial_until"]
-                       else f"💰 Оплачено с баланса: {money(pr)}"))
+                       else f"💰 Оплачено: {money(price)}" + (f" ({stars} ⭐)" if stars else "") + f" — {method}"))
 
 
 async def send_curator(uid, username):
@@ -821,53 +1091,22 @@ async def bots_view(target, uid):
         if b["trial_until"] and b["token"]:
             rows.append([B("buy", f"c:buy:{b['id']}", text=f"{bt('buy')} · @{b['username']} · {pr}")])
     u = core.user(uid)
-    text += f"\n\n💰 Баланс: <b>{money(u['balance'] if u else 0)}</b>"
-    rows.append([B("topup", "c:top"), B("menu", "c:menu")])
+    if u and (u["balance"] or 0) > 0:
+        text += f"\n\n💰 Баланс: <b>{money(u['balance'])}</b>"
+    rows.append([B("menu", "c:menu")])
     await out(target, text, kb(rows))
-
-
-async def buy_bot(uid, bid):
-    """Покупка пробного бота навсегда с баланса. -> "ok" / "no_money" / "bad" / "busy"."""
-    from handlers import builder
-    b = db.hosted(bid)
-    if not b or b["user_id"] != uid or not b["trial_until"]:
-        return "bad"
-    if uid in _busy:
-        return "busy"
-    _busy.add(uid)
-    try:
-        pr = core.price()
-        if pr > 0 and not core.take_balance(uid, pr):
-            return "no_money"
-        db.set_hosted(bid, price=pr)
-        running_now = await builder.make_permanent(_bot, b)
-        name = html.escape(b["username"] or "?")
-        await to_admins(f"♾ <b>Бот куплен навсегда</b> (с баланса конструктора)\n\n🤖 @{name} · #{bid}\n"
-                        f"👤 {core.user_link(core.user(uid))}\n💰 {money(pr)}"
-                        + ("" if running_now else "\n⚠️ Бот не запустился — смотрите лог в основном боте."))
-        return "ok"
-    finally:
-        _busy.discard(uid)
 
 
 @router.callback_query(F.data.startswith("c:buy:"))
 async def cb_buy(call: CallbackQuery):
+    """Купить пробного бота навсегда: те же способы оплаты, что и при создании."""
     uid = call.from_user.id
     bid = int(call.data.split(":")[2])
-    res = await buy_bot(uid, bid)
-    if res == "bad":
-        return await call.answer("Этот бот уже куплен 🙂", show_alert=True)
-    if res == "busy":
-        return await call.answer()
-    await call.answer()
-    if res == "no_money":
-        u = core.user(uid)
-        return await out(call, tx("no_money", price=money(core.price()), balance=money(u["balance"] if u else 0)),
-                         kb([[B("topup", "c:top")], [B("bots", "c:bots")]]))
     b = db.hosted(bid)
-    await out(call, tx("bought", username=html.escape(b["username"] or "?")), kb([
-        [raw_btn(f"🤖 @{b['username']}", url=f"https://t.me/{b['username']}", style="success")],
-        [B("bots", "c:bots"), B("menu", "c:menu")]]))
+    if not b or b["user_id"] != uid or not b["trial_until"]:
+        return await call.answer("Этот бот уже куплен 🙂", show_alert=True)
+    await call.answer()
+    await pay_menu(call, uid, "buy", bid)
 
 
 @router.callback_query(F.data.startswith("c:rt:"))

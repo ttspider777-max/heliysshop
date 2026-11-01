@@ -29,6 +29,20 @@ CREATE TABLE IF NOT EXISTS ctor_topups (
     receipt TEXT,
     created TEXT
 );
+CREATE TABLE IF NOT EXISTS ctor_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    kind TEXT,          -- create (новый магазин) / buy (пробный -> навсегда)
+    bot_id INTEGER,     -- для buy: id магазина
+    method TEXT,        -- stars / cryptobot / xrocket / sbp / balance
+    amount REAL,        -- ₽
+    stars INTEGER,
+    status TEXT,        -- wait / pending (чек на проверке) / paid / rejected / canceled
+    receipt TEXT,
+    inv_id INTEGER,     -- счёт крипты (crypto_invoices.id)
+    data TEXT,          -- снимок данных мастера на момент оплаты
+    created TEXT
+);
 CREATE TABLE IF NOT EXISTS ctor_drafts (
     user_id INTEGER PRIMARY KEY,
     data TEXT,
@@ -88,6 +102,62 @@ def support_url():
 def curator():
     """Личный куратор владельцев магазинов (/admin → 👨‍💼 Куратор). По умолчанию — поддержка."""
     return get("curator") or support_url()
+
+
+def stars_price():
+    """Цена в звёздах (⭐). /admin → 💳 Оплата → «Цена в звёздах»; 0/пусто — по курсу из цены в ₽."""
+    try:
+        own = int(float(get("stars_price") or 0))
+    except (TypeError, ValueError):
+        own = 0
+    if own > 0:
+        return own
+    try:
+        rate = float(db.get_setting("star_rate", config.STAR_RATE) or config.STAR_RATE)
+    except (TypeError, ValueError):
+        rate = config.STAR_RATE
+    import math
+    return max(int(math.ceil(price() / max(rate, 0.01))), 1)
+
+
+def pay_on(method):
+    """Способ оплаты включён (звёзды и СБП — переключатели в /admin, крипта — когда вставлен API-токен)."""
+    if method in ("cryptobot", "xrocket"):
+        import crypto
+        return crypto.enabled(method)
+    return get("pay_off:" + method) != "1"
+
+
+def pay_methods():
+    return [m for m in ("stars", "cryptobot", "xrocket", "sbp") if pay_on(m)]
+
+
+PAY_NAMES = {"stars": "Звёзды", "cryptobot": "CryptoBot", "xrocket": "xRocket", "sbp": "СБП", "balance": "Баланс"}
+
+
+def payment(pid):
+    return db.q1("SELECT * FROM ctor_payments WHERE id=?", (pid,))
+
+
+def create_payment(uid, kind, method, amount, stars=0, bot_id=None, data=None):
+    db.x("UPDATE ctor_payments SET status='canceled' WHERE user_id=? AND kind=? AND status='wait' "
+         "AND COALESCE(bot_id, 0)=?", (uid, kind, bot_id or 0))
+    return db.x("INSERT INTO ctor_payments(user_id, kind, bot_id, method, amount, stars, status, data, created) "
+                "VALUES (?,?,?,?,?,?, 'wait', ?, ?)",
+                (uid, kind, bot_id, method, amount, stars, json.dumps(data or {}, ensure_ascii=False), db.now()))
+
+
+def set_payment(pid, **kw):
+    sets = ", ".join(f"{k}=?" for k in kw)
+    db.x(f"UPDATE ctor_payments SET {sets} WHERE id=?", (*kw.values(), pid))
+
+
+def mark_paid(pid, receipt=None):
+    """Атомарно: wait/pending -> paid. -> True, если именно этот вызов провёл оплату."""
+    cur = db.conn.execute("UPDATE ctor_payments SET status='paid', receipt=COALESCE(?, receipt) "
+                          "WHERE id=? AND status IN ('wait','pending')", (receipt, pid))
+    db.conn.commit()
+    return cur.rowcount == 1
 
 
 def topup_min():
@@ -159,13 +229,15 @@ TEXTS = {
     "welcome": ("👋 Приветствие", (
         "🏗 <b>heliys конструктор</b>\n"
         "Свой магазин в Telegram за 5 минут — такой же, как @heliys_shop_bot\n\n"
-        "<blockquote>👋 Привет, <b>{name}</b>!\n💰 Баланс: <b>{balance}</b>\n🤖 Твоих ботов: <b>{bots}</b></blockquote>\n"
+        "<blockquote>👋 Привет, <b>{name}</b>!\n🤖 Твоих ботов: <b>{bots}</b></blockquote>\n"
         "✨ Мини-приложение, автовыдача товаров, оплата СБП / звёздами / криптой, поддержка и админка — всё уже внутри.\n\n"
         "👨‍💼 <b>У тебя будет личный куратор</b> — поможет с рекламным текстом, товарами, оформлением и "
         "первыми продажами.\n\n"
         "{trial}👇 Жми «Открыть приложение»")),
-    "trial_line": ("🎁 Строка про пробный период", "🎁 Первые <b>{days}</b> — бесплатно, потом {price} навсегда.\n\n"),
-    "price_line": ("💰 Строка про цену (без пробного)", "💰 Создание бота — <b>{price}</b>, навсегда.\n\n"),
+    "trial_line": ("🎁 Строка про пробный период", "🎁 Пробный период — <b>{days}</b> бесплатно. Навсегда — {price} "
+                                                   "(звёзды, крипта, СБП).\n\n"),
+    "price_line": ("💰 Строка про цену (без пробного)", "💳 Создание бота — <b>{price}</b>, навсегда "
+                                                       "(звёзды, крипта, СБП).\n\n"),
     "step_color": ("🎨 Шаг 1 — цвет (в чате)", "🎨 <b>Шаг 1 из 7 — цвет витрины</b>\n\nВыбери основной цвет мини-приложения "
                                                 "или введи свой:"),
     "step_hex": ("🎨 Ввод своего цвета", "🎨 Пришли цвет в формате <code>#ff7a1a</code>.\n\n"
@@ -205,8 +277,36 @@ TEXTS = {
     "token_ok": ("✅ Токен принят", "✅ Бот @{username} найден!"),
     "summary": ("🧾 Проверь данные магазина", "🧾 <b>Проверь данные магазина</b>"),
     "pay_trial": ("🎁 Оплата: бесплатно", "🎁 <b>{days} бесплатно</b>, потом {price} навсегда"),
-    "pay_price": ("💰 Оплата: с баланса", "💰 <b>{price}</b> спишется с баланса (сейчас {balance})"),
+    "pay_price": ("💰 Оплата в итогах", "💳 <b>{price}</b> или <b>{stars} ⭐</b> — оплата звёздами, криптой или по СБП "
+                                        "на следующем шаге"),
     "edit_menu": ("✏️ Что изменить", "✏️ <b>Что изменить?</b>"),
+    "pay_choose": ("💳 Выбор оплаты (новый магазин)", (
+        "💳 <b>Оплата магазина</b>\n\nСтоимость: <b>{price}</b> или <b>{stars} ⭐</b> — бот твой навсегда.\n"
+        "{trial}Выбери способ оплаты 👇")),
+    "pay_choose_buy": ("💳 Выбор оплаты (купить пробный)", (
+        "💳 <b>Купить @{username} навсегда</b>\n\nСтоимость: <b>{price}</b> или <b>{stars} ⭐</b>.\n"
+        "Выбери способ оплаты 👇")),
+    "pay_trial_line": ("🎁 Строка о пробном в выборе оплаты", "🎁 Или возьми <b>пробный период на {days}</b> — бесплатно.\n\n"),
+    "pay_none": ("⚠️ Нет способов оплаты", "⚠️ Оплата сейчас недоступна — напиши в поддержку."),
+    "stars_title": ("⭐ Счёт звёздами — название", "Магазин в Telegram"),
+    "stars_desc": ("⭐ Счёт звёздами — описание", "Свой магазин на базе heliys shop — навсегда"),
+    "pay_crypto": ("💎 Счёт в крипте", (
+        "💎 <b>Счёт {service}</b> на <b>{price}</b>{extra}\n\nОплати по кнопке ниже и вернись сюда — "
+        "магазин создастся автоматически (проверка раз в 20 секунд или кнопкой).")),
+    "pay_crypto_wait": ("💎 Крипта ещё не пришла", "Оплата ещё не пришла — подожди минуту и проверь снова."),
+    "pay_crypto_expired": ("💎 Счёт истёк", "Счёт истёк — выбери оплату заново."),
+    "pay_sbp": ("💳 Оплата по СБП — реквизиты", (
+        "💳 <b>Оплата по СБП — заявка #{id}</b>\n\nПереведи <b>{price}</b> по реквизитам:\n{details}\n\n"
+        "После оплаты нажми «Я оплатил» и пришли чек.")),
+    "pay_receipt": ("🧾 Скинь чек", "🧾 Скинь скриншот или файл чека одним сообщением:"),
+    "pay_receipt_sent": ("🔎 Чек на проверке", "🔎 Чек отправлен на проверку. Как только администратор подтвердит "
+                                              "оплату — я сразу создам твой магазин."),
+    "pay_receipt_sent_buy": ("🔎 Чек на проверке (покупка)", "🔎 Чек отправлен на проверку. Как только администратор "
+                                                            "подтвердит оплату — бот станет бессрочным."),
+    "pay_rejected": ("❌ Заявка отклонена", "❌ <b>Твоя заявка #{id} отклонена.</b>\n\nОплата не подтвердилась. "
+                                           "Если это ошибка — напиши в поддержку и приложи чек."),
+    "pay_ok": ("✅ Оплата получена", "✅ <b>Оплата получена!</b> Создаю твой магазин…"),
+    "pay_canceled": ("❌ Оплата отменена", "Оплата отменена."),
     "no_money": ("💸 Не хватает денег", "💸 <b>Не хватает на балансе</b>\n\nСоздание бота стоит <b>{price}</b>, "
                                         "на балансе <b>{balance}</b>. Пополни баланс — и вернись к созданию, "
                                         "все данные магазина сохранены."),
@@ -296,6 +396,13 @@ APP_TEXTS = {
     "app_price": ("Плашка цены", "Навсегда — {price}"),
     "app_topup_title": ("Пополнение — заголовок", "Пополнение баланса"),
     "app_topup_hint": ("Пополнение — подсказка", "Реквизиты СБП придут в чат с ботом, чек проверит админ"),
+    "app_plan_title": ("Выбор тарифа — заголовок", "Как запустим магазин?"),
+    "app_plan_trial": ("Тариф «Пробный»", "Пробный период"),
+    "app_plan_trial_sub": ("Тариф «Пробный» — подпись", "{days} бесплатно — понравится, купишь"),
+    "app_plan_used": ("Пробный уже использован", "Пробный период уже использован"),
+    "app_plan_buy": ("Тариф «Купить»", "Купить навсегда"),
+    "app_plan_buy_sub": ("Тариф «Купить» — подпись", "Оплата после настройки магазина"),
+    "app_buy_sent": ("Покупка — способы оплаты в чате", "Способы оплаты отправлены в чат с ботом"),
     "app_sub_title": ("Подписка — заголовок", "Подпишись, чтобы продолжить"),
     "app_sub_text": ("Подписка — текст", "Конструктор доступен подписчикам каналов ниже"),
     "app_sub_check": ("Подписка — кнопка проверки", "Я подписался"),
@@ -349,6 +456,14 @@ BUTTONS = {
     "restart": ("Начать заново", "🔄 Начать заново", None),
     "sub_check": ("Я подписался", "✅ Я подписался", "success"),
     "curator": ("Написать куратору", "👨‍💼 Написать куратору", "primary"),
+    "trial": ("Пробный период", "🎁 Пробный период", "success"),
+    "pay_stars": ("Оплата звёздами", "⭐ Звёзды", "primary"),
+    "pay_cryptobot": ("Оплата CryptoBot", "💎 CryptoBot", None),
+    "pay_xrocket": ("Оплата xRocket", "🚀 xRocket", None),
+    "pay_sbp": ("Оплата СБП", "💳 СБП", None),
+    "pay_balance": ("Оплата с баланса", "💰 С баланса", None),
+    "pay_open": ("Открыть счёт (крипта)", "💎 Оплатить", "success"),
+    "pay_check": ("Проверить оплату", "🔄 Проверить оплату", None),
 }
 STYLES = {"": "обычный", "primary": "синий", "success": "зелёный", "danger": "красный"}
 
@@ -378,6 +493,10 @@ ICON_SLOTS = {
     "feat": ("Пункты «Что внутри»", "✨"),
     "trial": ("Плашка пробного", "🎁"),
     "home": ("Вкладка «Главная»", "🏠"),
+    "buy": ("Тариф «Купить навсегда»", "💳"),
+    "stars": ("Значок «Звёзды»", "⭐"),
+    "crypto": ("Значок «Крипта»", "💎"),
+    "sbp": ("Значок «СБП»", "🏦"),
     "profile": ("Вкладка «Профиль»", "👤"),
 }
 
