@@ -266,9 +266,8 @@ def days_text(n=None):
 
 def menu_kb(uid):
     url = app_url()
-    rows = [[B("create", web_app=url + "#create") if url else B("create", "c:new")]]
-    if url:
-        rows.append([B("app", web_app=url)])
+    # одна кнопка мини-приложения; создание магазина — внутри него (без сайта — мастер в чате)
+    rows = [[B("app", web_app=url) if url else B("create", "c:new")]]
     rows.append([B("bots", "c:bots"), B("topup", "c:top")])
     rows.append([B("support", "c:sup")])
     if uid in config.ADMINS:
@@ -804,7 +803,7 @@ async def bots_view(target, uid):
     if not bots:
         url = app_url()
         return await out(target, tx("no_bots"), kb([
-            [B("create", web_app=url + "#create") if url else B("create", "c:new")], [B("menu", "c:menu")]]))
+            [B("app", web_app=url) if url else B("create", "c:new")], [B("menu", "c:menu")]]))
     text = tx("bots_head") + "\n"
     rows = []
     pr = money(core.price())
