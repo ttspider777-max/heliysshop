@@ -30,6 +30,8 @@ async def show_main(target, lang, uid, state: FSMContext = None):
     text = t("welcome", lang, name=html.escape((u["first_name"] if u else None) or "friend"),
              balance=money(u["balance"] if u else 0), orders=db.count_user_orders(uid),
              status=html.escape(appcfg.status_label(u)))
+    if db.get_setting("verified") == "1":  # значок от бота-конструктора: магазин набрал N продаж
+        text = t("verified_badge", lang) + "\n" + text
     media = as_media(db.get_setting("welcome_photo"), db.get_setting("welcome_media_type"))
     if not media and db.get_setting("welcome_local"):
         # фото приветствия из бота-конструктора: отправляем файл один раз и запоминаем его file_id

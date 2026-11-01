@@ -13,7 +13,7 @@ import hosting
 import web
 # admin_extra, admin_app и restock регистрируют хендлеры на admin.router
 from handlers import (admin, admin_app, admin_extra, builder, codex, cryptopay, legal, payments,  # noqa: F401
-                      restock, shop, support, topup, user)
+                      restock, reviews, shop, support, topup, user)
 import crypto
 from middlewares import UserMiddleware
 
@@ -41,7 +41,7 @@ async def main():
     dp.callback_query.outer_middleware(mw)
     # порядок важен: /start и меню -> ввод в админке -> поддержка -> магазин
     # builder, codex, topup — до shop, чтобы чеки и токен не ушли в обработчики магазина
-    dp.include_routers(user.router, legal.router, admin.router, support.router, builder.router, codex.router,
+    dp.include_routers(user.router, legal.router, admin.router, reviews.router, support.router, builder.router, codex.router,
                        topup.router, payments.router, cryptopay.router, shop.router)
     await bot.set_my_commands([
         BotCommand(command="start", description="Главное меню / Main menu"),

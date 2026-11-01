@@ -418,6 +418,27 @@ TEXTS = {
     ),
     # ---------- отзыв, техработы, звёзды, пополнение ----------
     # {link} — ссылка на отзывы, {user} — юзернейм, который нужно указать (⚙️ Настройки)
+    "rate_ask": (
+        "⭐ <b>Оцените «{name}»</b>\n\nКак вам товар? Ваша оценка поможет другим покупателям.",
+        "⭐ <b>Rate «{name}»</b>\n\nHow do you like it? Your rating helps other buyers.",
+    ),
+    "rate_text": (
+        "Спасибо за оценку {stars}!\n\n✍️ Напишите пару слов о товаре одним сообщением — или нажмите «Пропустить».",
+        "Thanks for the rating {stars}!\n\n✍️ Write a few words about the product — or tap «Skip».",
+    ),
+    "rate_done": ("💜 Спасибо за отзыв!", "💜 Thank you for the review!"),
+    "rating_line": ("⭐ <b>{avg}</b> из 5 · {n} отз.", "⭐ <b>{avg}</b> of 5 · {n} reviews"),
+    "reviews_title": ("💬 <b>Отзывы — {name}</b>", "💬 <b>Reviews — {name}</b>"),
+    "reviews_empty": ("Пока нет отзывов.", "No reviews yet."),
+    "verified_badge": ("✅ <b>Проверенный магазин</b>", "✅ <b>Verified shop</b>"),
+    "low_stock": (
+        "📦 <b>Пора пополнить склад</b>\n\n«{name}» — осталось <b>{n}</b> шт.",
+        "📦 <b>Time to restock</b>\n\n«{name}» — <b>{n}</b> left.",
+    ),
+    "out_of_stock_admin": (
+        "🔴 <b>Товар закончился</b>\n\n«{name}» — остаток 0. Покупатели видят «нет в наличии». Загрузите новые позиции.",
+        "🔴 <b>Out of stock</b>\n\n«{name}» — 0 left. Buyers see «out of stock». Upload new items.",
+    ),
     "review_ask": (
         "💜 <b>Спасибо за покупку!</b>\n\nОставьте, пожалуйста, отзыв сюда: {link}\nВ отзыве укажите {user} 🙏",
         "💜 <b>Thank you for your purchase!</b>\n\nPlease leave a review here: {link}\nMention {user} in it 🙏",
@@ -700,6 +721,9 @@ BUTTONS = {
     "cx_confirm": ("✅ Подтвердить", "✅ Confirm", "success"),
     "cx_cancel_num": ("❌ Отменить номер", "❌ Cancel number", "danger"),
     "open_product": ("🛒 Открыть товар", "🛒 Open product", "success"),
+    "rv_skip": ("⏭ Пропустить", "⏭ Skip", ""),
+    "rv_list": ("💬 Отзывы", "💬 Reviews", ""),
+    "restock_open": ("📦 Открыть товар в админке", "📦 Open product in admin", "primary"),
 }
 
 # Все тексты бота можно поменять в админ-панели → ✏️ Оформление → 📝 Все тексты.

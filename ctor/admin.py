@@ -26,6 +26,7 @@ router.message.filter(F.from_user.id.in_(config.ADMINS))
 router.callback_query.filter(F.from_user.id.in_(config.ADMINS))
 
 _wait = {}  # id админа -> {"act": ..., ...}: чего ждём следующим сообщением
+EXTRA = {}  # act -> обработчик ввода из других модулей (ctor/admin2.py): (m, w, txt, finish, bot)
 
 
 def B(text, cb=None, url=None, style=None, web_app=None):
@@ -67,6 +68,9 @@ async def route_back(call: CallbackQuery, target):
         return await pay_view(call)
     if target.startswith("ca:ic:"):
         return await icon_view(call, target[6:])
+    if target.startswith("ca2:"):
+        from ctor import admin2
+        return await admin2.route(call, target)
     if target == "ca:ref":
         return await ref_view(call)
     if target == "ca:prm":
@@ -105,7 +109,8 @@ async def home(target, prefix=""):
             f"💰 Оплат: <b>{paid_n}</b> на <b>{money(paid_rub)}</b> + {paid_stars} ⭐\n"
             f"🔎 Чеков на проверке: <b>{pending}</b></blockquote>\n\n"
             + ("🛠 <b>ВКЛЮЧЕНЫ ТЕХРАБОТЫ</b> — пользователи видят заглушку.\n\n" if core.get("maint") == "1" else "")
-            + f"💰 Цена бота: <b>{money(core.price())}</b> · 🎁 Пробный: <b>{core.trial_days() or 'выкл'}</b>"
+            + "💎 " + " · ".join(f"{core.tariff_name(k)} {money(core.tariff_price(k))}" for k in core.tariffs_on())
+            + f"\n🎁 Пробный: <b>{core.trial_days() or 'выкл'}</b>"
             f"{' дн.' if core.trial_days() else ''}")
     if not cbot.app_url():
         text += ("\n\n⚠️ <i>Мини-приложение недоступно: не задан https-адрес сайта. На BotHost включите "
@@ -114,7 +119,8 @@ async def home(target, prefix=""):
     await render(target, text, kb([
         [B("👋 Приветствие", "ca:wel"), B("🔘 Кнопки", "ca:btns")],
         [B("📝 Тексты бота", "ca:txl:0"), B("📱 Мини-приложение", "ca:app", style="primary")],
-        [B("💰 Цена", "ca:v:price"), B("🎁 Пробный период", "ca:v:trial_days")],
+        [B("💎 Тарифы: Start / Medium / Pro / VIP", "ca2:tar", style="success")],
+        [B("📈 Рост и продажи", "ca2:grow", style="primary"), B("🎁 Пробный период", "ca:v:trial_days")],
         [B("💳 Оплата: звёзды, крипта, СБП", "ca:pay", style="primary")],
         [B("💳 Реквизиты СБП", "ca:v:sbp"), B("💬 Поддержка", "ca:v:support_url")],
         [B("💵 Мин. пополнение", "ca:v:topup_min"), B("🌐 Адрес сайта", "ca:v:site")],
@@ -474,7 +480,7 @@ async def cb_icon_del(call: CallbackQuery):
 
 # ======================= значения =======================
 VALUES = {
-    "price": ("💰 Цена бота", "Отправьте цену создания бота в рублях (например <code>300</code>). "
+    "price": ("💎 Цена тарифа Pro", "Отправьте цену тарифа Pro (навсегда) в рублях (например <code>300</code>). "
                               "<code>0</code> — бесплатно."),
     "trial_days": ("🎁 Пробный период", "Сколько дней бот работает бесплатно? Отправьте число "
                                         "(<code>3</code>). <code>0</code> — без пробного периода."),
@@ -765,7 +771,7 @@ async def cb_bot_extend(call: CallbackQuery):
     if b["status"] == "expired" and b["token"]:
         db.set_hosted(bid, status="running")
         await hosting.launch(bid)
-    await cbot.send(b["user_id"], f"🎁 Пробный период бота @{html.escape(b['username'] or '?')} продлён до "
+    await cbot.send(b["user_id"], f"🎁 Срок бота @{html.escape(b['username'] or '?')} продлён до "
                                   f"<b>{builder.fmt_until(until)}</b>.")
     await bot_view(call, bid, f"🎁 Продлён до {builder.fmt_until(until)}.\n\n")
 
@@ -779,8 +785,9 @@ async def cb_bot_permanent(call: CallbackQuery, bot: Bot):
     if not b or not b["trial_until"]:
         return await call.answer("Уже навсегда", show_alert=True)
     await call.answer("Готово")
-    await builder.make_permanent(bot, b)
-    await cbot.send(b["user_id"], core.tx("bought", username=html.escape(b["username"] or "?")))
+    db.set_hosted(bid, plan="pro")
+    await builder.make_permanent(bot, db.hosted(bid))
+    await cbot.send(b["user_id"], core.tx("bought", username=html.escape(b["username"] or "?"), plan="💎 Pro · навсегда"))
     await bot_view(call, bid, "♾ Теперь навсегда.\n\n")
 
 
@@ -1195,6 +1202,8 @@ async def on_input(m: Message, bot: Bot):
     def finish():
         _wait.pop(uid, None)
 
+    if act in EXTRA:
+        return await EXTRA[act](m, w, txt, finish, bot)
     if act == "welcome":
         media = media_of(m)
         if m.text or m.caption:

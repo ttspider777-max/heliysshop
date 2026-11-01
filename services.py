@@ -82,6 +82,8 @@ async def fulfill(bot: Bot, oid):
         return await fulfill_ext(bot, o, p, qty, lang)
 
     items = db.take_items(o["product_id"], oid, qty) if p is not None else None
+    if items and not db.unlimited(p):
+        await check_low_stock(bot, p, len(items))
     content = None
     if items:
         sep = "\n\n" if any("\n" in i for i in items) else "\n"
@@ -149,6 +151,7 @@ async def deliver(bot: Bot, oid, content):
     text = t("order_delivered", lang, oid=oid, name=html.escape(o["product_name"]), content=html.escape(content))
     if len(text) <= 4000:
         await safe_send(bot, o["user_id"], text, _menu_kb(lang))
+        await ask_rating(bot, o)
         await ask_review(bot, o["user_id"])
         return
     # много позиций не влезают в одно сообщение — отправляем файлом
@@ -158,7 +161,48 @@ async def deliver(bot: Bot, oid, content):
                                 caption=head, reply_markup=_menu_kb(lang))
     except Exception as e:
         logging.warning("не удалось отправить файл заказа %s: %s", oid, e)
+    await ask_rating(bot, o)
     await ask_review(bot, o["user_id"])
+
+
+async def ask_rating(bot: Bot, o):
+    """После выдачи: «Оцените товар» ⭐1–5 (отзывы видны в карточке товара). Выключается настройкой reviews_off."""
+    if db.get_setting("reviews_off") == "1" or not o["product_id"] or db.review_by_order(o["id"]):
+        return
+    lang = _lang(o["user_id"])
+    stars = [InlineKeyboardButton(text=f"{n}⭐", callback_data=f"rv:{o['id']}:{n}")
+             for n in range(1, 6)]
+    await safe_send(bot, o["user_id"], t("rate_ask", lang, name=html.escape(o["product_name"])),
+                    InlineKeyboardMarkup(inline_keyboard=[stars]))
+
+
+LOW_STOCK = 3  # при каком остатке напоминать владельцу (настройка low_stock)
+
+
+async def check_low_stock(bot: Bot, p, sold):
+    """Склад товара опустился до порога или до нуля — напоминаем админам один раз (при переходе через порог)."""
+    try:
+        limit = int(float(db.get_setting("low_stock", LOW_STOCK)))
+    except (TypeError, ValueError):
+        limit = LOW_STOCK
+    if limit < 0:
+        return
+    left = db.stock(p["id"])
+    before = left + sold
+    if left == 0 and before > 0:
+        key = "out_of_stock_admin"
+    elif limit > 0 and before > limit >= left:
+        key = "low_stock"
+    else:
+        return
+    markup = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+        text=t_btn("restock_open"), callback_data=f"a:pv:{p['id']}:0")]])
+    await to_admins(bot, t(key, "ru", name=html.escape(p["name"]), n=left), markup)
+
+
+def t_btn(key):
+    from texts import bt
+    return bt(key, "ru")
 
 
 async def ask_review(bot: Bot, uid):

@@ -155,6 +155,17 @@ CREATE TABLE IF NOT EXISTS crypto_invoices (
     status TEXT,        -- pending / paid / expired
     created INTEGER
 );
+CREATE TABLE IF NOT EXISTS reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id INTEGER UNIQUE,
+    user_id INTEGER,
+    product_id INTEGER,
+    rating INTEGER,
+    text TEXT DEFAULT '',
+    hidden INTEGER DEFAULT 0,
+    created TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_reviews_prod ON reviews(product_id, hidden);
 CREATE INDEX IF NOT EXISTS idx_items_prod ON items(product_id, sold);
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_tmsg ON ticket_msgs(ticket_id);
@@ -227,6 +238,41 @@ def init():
     if not val("SELECT COUNT(*) FROM categories"):
         x("INSERT INTO categories(name, position) VALUES (?, 1)", ("🤖 Ai-Сервисы",))
         x("INSERT INTO categories(name, position) VALUES (?, 2)", ("📱 Физ. номера",))
+
+
+# ---------- отзывы на товары ----------
+def add_review(oid, uid, pid, rating):
+    """Оценка за заказ (один отзыв на заказ). -> id отзыва или None, если уже оценён."""
+    try:
+        return x("INSERT INTO reviews(order_id, user_id, product_id, rating, created) VALUES (?,?,?,?,?)",
+                 (oid, uid, pid, max(1, min(5, int(rating))), now()))
+    except sqlite3.IntegrityError:
+        return None
+
+
+def review(rid):
+    return q1("SELECT * FROM reviews WHERE id=?", (rid,))
+
+
+def review_by_order(oid):
+    return q1("SELECT * FROM reviews WHERE order_id=?", (oid,))
+
+
+def set_review(rid, **kw):
+    sets = ", ".join(f"{k}=?" for k in kw)
+    x(f"UPDATE reviews SET {sets} WHERE id=?", (*kw.values(), rid))
+
+
+def review_stats(pid):
+    """-> (средняя оценка, сколько отзывов)."""
+    r = q1("SELECT AVG(rating) a, COUNT(*) n FROM reviews WHERE product_id=? AND hidden=0", (pid,))
+    return (round(r["a"], 1) if r and r["a"] else 0), (r["n"] if r else 0)
+
+
+def reviews_for(pid, limit=5, offset=0):
+    return q("""SELECT r.*, u.first_name FROM reviews r LEFT JOIN users u ON u.id=r.user_id
+                WHERE r.product_id=? AND r.hidden=0 ORDER BY (r.text != '') DESC, r.id DESC LIMIT ? OFFSET ?""",
+             (pid, limit, offset))
 
 
 # ---------- бэкап базы ----------

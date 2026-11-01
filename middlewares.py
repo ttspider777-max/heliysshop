@@ -36,6 +36,23 @@ class UserMiddleware(BaseMiddleware):
         if u is None or u.is_bot:
             return await handler(event, data)
 
+        # защита от флуда (спам кнопками/сообщениями); оплату и админов не трогаем
+        if not (isinstance(event, Message) and event.successful_payment) and not admins.is_admin(u.id):
+            import flood
+            st = flood.check(u.id)
+            if st != "ok":
+                try:
+                    if st == "warn":
+                        if isinstance(event, CallbackQuery):
+                            await event.answer(flood.WARN_TEXT, show_alert=True)
+                        elif event.chat.type == "private":
+                            await event.answer(flood.WARN_TEXT)
+                    elif isinstance(event, CallbackQuery):
+                        await event.answer()
+                except Exception:
+                    pass
+                return
+
         row = db.get_user(u.id)
         is_new = row is None
         if is_new:

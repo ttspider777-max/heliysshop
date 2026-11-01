@@ -14,7 +14,7 @@ import appcfg
 import config
 import db
 from services import final_price, fulfill, user_link
-from texts import DIVIDER, money, plural, t
+from texts import DIVIDER, bt, money, plural, t
 from ui import as_media, btn, kb, legal_row, menu_row, pager, raw_btn, render, send_media, shop_btn
 
 router = Router()
@@ -159,6 +159,9 @@ def product_text(p, lang, u):
         lines.append(t("price_disc", lang, old=money(p["old_price"]), price=money(p["price"]), pct=pct))
     else:
         lines.append(t("price", lang, price=money(p["price"])) + (t("per_item", lang) if p["min_qty"] else ""))
+    avg, n = db.review_stats(p["id"])
+    if n:
+        lines.append(t("rating_line", lang, avg=f"{avg:g}", n=n))
     fp, pct, code = final_price(u, p["price"])
     if pct and code:
         lines.append(t("promo_applied", lang, code=html.escape(code), price=money(fp)))
@@ -198,9 +201,11 @@ async def show_product(call, pid, kind, lang):
     fav = db.is_fav(uid, pid)
     first = btn("buy", lang, f"buy:{pid}:{kind}") if in_stock(p) else btn("notify", lang, f"nt:{pid}")
     text = product_text(p, lang, u)
+    _, n_rev = db.review_stats(pid)
     markup = kb([
         [first],
-        [btn("fav_del" if fav else "fav_add", lang, f"fv:{pid}:{kind}")],
+        [btn("fav_del" if fav else "fav_add", lang, f"fv:{pid}:{kind}"),
+         raw_btn(f"{bt('rv_list', lang)} ({n_rev})", f"rvl:{pid}:{kind}:0") if n_rev else None],
         [btn("back", lang, f"l:{kind}:0"), btn("main_menu", lang, "menu")],
     ])
     photo = as_media(p["photo"], p["media_type"])  # карточка товара: фото, видео или GIF

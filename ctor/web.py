@@ -41,6 +41,10 @@ async def _auth(request):
     if not tg:
         return None, jerr("auth", "Откройте приложение из Telegram", 401)
     u = core.touch_tg(tg)
+    if tg["id"] not in __import__("config").ADMINS:  # защита от спама запросами
+        import flood
+        if flood.check(("cweb", tg["id"])) != "ok":
+            return None, jerr("flood", flood.WARN_TEXT, 429)
     if core.get("maint") == "1" and tg["id"] not in __import__("config").ADMINS:
         return None, jerr("maint", core.plain(core.tx("maint")), 503)
     if u["banned"] and tg["id"] not in __import__("config").ADMINS:
@@ -109,7 +113,19 @@ def _bots(uid):
         out.append({"id": b["id"], "username": b["username"], "status": b["status"],
                     "status_text": STATUS_RU.get(b["status"], b["status"]),
                     "trial_until": builder.fmt_until(b["trial_until"]) if b["trial_until"] else None,
+                    "plan": core.bot_plan(b), "plan_text": core.plan_line(b), "verified": bool(b["verified"]),
                     "can_buy": bool(b["trial_until"] and b["token"])})
+    return out
+
+
+def _tariffs(uid, mw):
+    from ctor import bot as cbot
+    out = []
+    for k in core.tariffs_on():
+        amount, _ = core.final_price(uid, k)
+        out.append({"id": k, "name": core.tariff_name(k), "days": core.tariff_days(k), "period": core.tariff_period(k),
+                    "price": amount, "base": core.tariff_price(k), "stars": core.stars_for(amount),
+                    "desc": mw.sanitize(cbot.tariff_desc(k))})
     return out
 
 
@@ -123,14 +139,17 @@ async def boot(request):
     mw = _mw()
     days = cbot.days_text()
     pr = core.money(core.price())
+    mn = core.money(core.min_tariff_price())
     d, _ = core.draft(uid)
+    if not u["app_opened"]:
+        db.x("UPDATE ctor_users SET app_opened=? WHERE id=?", (db.now(), uid))
     season = core.get("app_season", "none")
     if season not in appcfg.SEASONS:
         season = "none"
     data = {
         "ok": True,
         "app": {
-            "texts": {k: mw.sanitize(core.tx(k, days=days, price=pr)) for k in core.APP_TEXTS},
+            "texts": {k: mw.sanitize(core.tx(k, days=days, price=pr, min=mn)) for k in core.APP_TEXTS},
             "icons": core.icons(),
             "accent": core.get("app_accent") or "#8b5cf6",
             "season": season,
@@ -142,6 +161,13 @@ async def boot(request):
         "colors": [{"id": k, "name": v[0], "hex": v[1], "swatch": v[2]} for k, v in core.COLORS.items()],
         "styles": [{"id": k, "name": v[0], "badge": v[1], "accent": v[3]} for k, v in appcfg.SEASONS.items()],
         "price": core.price(),
+        "min_price": core.min_tariff_price(),
+        "tariffs": _tariffs(uid, mw),
+        "faq": [{"q": mw.sanitize(f.get("q") or ""), "a": mw.sanitize(f.get("a") or "")}
+                for f in core.jget("faq", core.FAQ)],
+        "course": core.flag_on("course"),
+        "chat": [{"me": m["sender"] == "user", "text": m["text"], "at": m["created"][11:16]}
+                 for m in core.chat_list(uid)],
         "pay": {"stars": core.stars_price() if core.pay_on("stars") else 0,
                 "crypto": [m for m in ("cryptobot", "xrocket") if core.pay_on(m)], "sbp": core.pay_on("sbp")},
         "trial": {"on": cbot.trial_free(uid), "days": core.trial_days(), "text": days},
@@ -192,7 +218,12 @@ async def save_draft(request):
     d, _ = core.draft(uid)
     d.update(color=color, style=style, title=title, desc=desc)
     plan = str(body.get("plan") or "")
-    d["plan"] = "trial" if plan == "trial" and cbot.trial_ok(uid, d) else "buy"
+    if plan == "trial" and cbot.trial_ok(uid, d):
+        d["plan"] = "trial"
+    elif plan in core.TARIFFS and core.tariff_on(plan):
+        d["plan"] = plan
+    else:
+        d["plan"] = "buy"  # тариф выберет в чате
     if color == "custom":
         d["hex"] = hx
     else:
@@ -232,10 +263,38 @@ async def buy(request):
     except (TypeError, ValueError):
         return jerr("bad", "Бот не найден")
     b = db.hosted(bid)
-    if not b or b["user_id"] != tg["id"] or not b["trial_until"]:
-        return jerr("bad", "Бот уже куплен — обновите страницу")
-    await cbot.pay_menu(tg["id"], tg["id"], "buy", bid)  # способы оплаты — в чат с ботом
+    if not b or b["user_id"] != tg["id"] or not cbot.can_renew(b):
+        return jerr("bad", "Бот уже куплен навсегда — обновите страницу")
+    tariff = str(body.get("tariff") or "")
+    if tariff in core.TARIFFS and core.tariff_on(tariff):
+        await cbot.pay_menu(tg["id"], tg["id"], "buy", bid, tariff)  # способы оплаты — в чат с ботом
+    else:
+        await cbot.tariff_view(tg["id"], tg["id"], "b", bid)
     return web.json_response({"ok": True})
+
+
+async def chat(request):
+    """Чат с куратором: GET — история, POST {text} — новое сообщение (уйдёт админам в Telegram)."""
+    from ctor import growth
+    ok, err = await _auth(request)
+    if err:
+        return err
+    tg, _ = ok
+    uid = tg["id"]
+    if request.method == "POST":
+        body = await _body(request)
+        text = str(body.get("text") or "").strip()
+        if not text:
+            return jerr("text", "Напишите сообщение")
+        if len(text) > 2000:
+            return jerr("text", "Слишком длинно — до 2000 символов")
+        recent = db.val("SELECT COUNT(*) FROM ctor_chat WHERE user_id=? AND sender='user' "
+                        "AND created >= datetime('now','localtime','-1 minute')", (uid,)) or 0
+        if recent >= 5:
+            return jerr("flood", "Не так быстро — подождите минуту", 429)
+        await growth.chat_from_user(uid, text)
+    msgs = [{"me": m["sender"] == "user", "text": m["text"], "at": m["created"][11:16]} for m in core.chat_list(uid)]
+    return web.json_response({"ok": True, "chat": msgs}, headers={"Cache-Control": "no-store"})
 
 
 async def page(request):
@@ -251,4 +310,6 @@ def setup(app):
     app.router.add_post("/c/api/draft", save_draft)
     app.router.add_post("/c/api/topup", topup)
     app.router.add_post("/c/api/buy", buy)
+    app.router.add_get("/c/api/chat", chat)
+    app.router.add_post("/c/api/chat", chat)
     app.router.add_get("/c/m/{sig}/{fid}", tg_media)

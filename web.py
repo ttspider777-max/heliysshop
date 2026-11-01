@@ -224,6 +224,10 @@ async def api_auth(request, handler):
         row = db.get_user(uid)
     lang = row["lang"] or "ru"
     is_admin = admins.is_admin(uid)
+    if not is_admin:  # защита от спама запросами
+        import flood
+        if flood.check(("web", uid)) != "ok":
+            return jerr("flood", flood.WARN_TEXT, 429)
     if db.get_setting("maint") == "1" and not is_admin:
         return jerr("maint", _plain(t("maint", lang)), 503)
     if row["banned"] and not is_admin:
@@ -432,6 +436,7 @@ def product_block(p, u=None):
            "stock": 0 if not available else -1 if unlimited else db.stock(p["id"]), "cat": p["category_id"],
            "out": not available, "min_qty": min_qty(p), "by_qty": bool(p["min_qty"]), "stars": stars_ok(p),
            "media": media_url(p["photo"], p["media_type"]) if p["photo"] else None}
+    out["rating"], out["reviews"] = db.review_stats(p["id"])
     return out
 
 
@@ -460,6 +465,7 @@ async def api_boot(request):
         "bot": getattr(_bot_me, "username", ""),
         "has_suppliers": bool(db.count_in_category(sup)), "suppliers_cid": sup,
         "docs": _docs_links(),
+        "verified": db.get_setting("verified") == "1",  # значок «Проверенный магазин» от бота-конструктора
         "pay": {"balance": not _hidden("pay_balance"), "sbp": not _hidden("pay_sbp"), "stars": True,
                 "cryptobot": crypto.enabled("cryptobot") and not _hidden("pay_cryptobot"),
                 "xrocket": crypto.enabled("xrocket") and not _hidden("pay_xrocket")},
@@ -503,7 +509,9 @@ async def api_product(request):
     cat = db.category(p["category_id"])
     out.update(description=sanitize(p["description"]), multi=is_multi(p), max_qty=max_qty(p),
                fav=db.is_fav(u["id"], pid), promo_price=fp if pct else None, promo_pct=pct,
-               cat_name=cat["name"] if cat else "")
+               cat_name=cat["name"] if cat else "",
+               review_list=[{"r": r["rating"], "text": r["text"] or "", "name": r["first_name"] or "Покупатель",
+                             "date": f"{r['created'][8:10]}.{r['created'][5:7]}"} for r in db.reviews_for(pid, 5)])
     if is_admin:  # для редактора в мини-приложении
         out.update(raw_description=p["description"] or "", kind=p["kind"], active=bool(p["active"]),
                    base_price=p["old_price"] if p["old_price"] and p["old_price"] > p["price"] else p["price"])
