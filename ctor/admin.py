@@ -61,6 +61,8 @@ async def route_back(call: CallbackQuery, target):
         return await welcome_view(call)
     if target == "ca:usr":
         return await users_view(call)
+    if target.startswith("ca:u:"):
+        return await user_card(call, int(target[5:]))
     if target == "ca:pay":
         return await pay_view(call)
     if target.startswith("ca:ic:"):
@@ -94,7 +96,8 @@ async def home(target, prefix=""):
             f"🤖 Магазинов: <b>{bots}</b> · работает {run} · на пробном {trials}\n"
             f"💰 Оплат: <b>{paid_n}</b> на <b>{money(paid_rub)}</b> + {paid_stars} ⭐\n"
             f"🔎 Чеков на проверке: <b>{pending}</b></blockquote>\n\n"
-            f"💰 Цена бота: <b>{money(core.price())}</b> · 🎁 Пробный: <b>{core.trial_days() or 'выкл'}</b>"
+            + ("🛠 <b>ВКЛЮЧЕНЫ ТЕХРАБОТЫ</b> — пользователи видят заглушку.\n\n" if core.get("maint") == "1" else "")
+            + f"💰 Цена бота: <b>{money(core.price())}</b> · 🎁 Пробный: <b>{core.trial_days() or 'выкл'}</b>"
             f"{' дн.' if core.trial_days() else ''}")
     if not cbot.app_url():
         text += ("\n\n⚠️ <i>Мини-приложение недоступно: не задан https-адрес сайта. На BotHost включите "
@@ -109,8 +112,10 @@ async def home(target, prefix=""):
         [B("💵 Мин. пополнение", "ca:v:topup_min"), B("🌐 Адрес сайта", "ca:v:site")],
         [B("👨‍💼 Куратор", "ca:v:curator")],
         [B("🤖 Магазины клиентов", "ca:hb:0", style="success")],
-        [B("👥 Пользователи и баланс", "ca:usr"), B("📢 Рассылка", "ca:bc")],
+        [B(f"👥 Пользователи ({users})", "ca:ul:0", style="primary"), B("📢 Рассылка", "ca:bc")],
         [B(f"📣 Обязательная подписка ({len(db.channels())})", "ca:subs")],
+        [B("🛠 Техработы: ВКЛ — выключить" if core.get("maint") == "1" else "🛠 Включить техработы", "ca:maint",
+           style="danger" if core.get("maint") == "1" else None)],
         [B("🏠 Меню конструктора", "c:menu")],
     ]))
 
@@ -616,23 +621,151 @@ async def cb_bot_permanent(call: CallbackQuery, bot: Bot):
 
 
 # ======================= пользователи =======================
-async def users_view(target, prefix=""):
+PER_PAGE = 8
+
+
+def _user_row(u):
+    bots = db.val("SELECT COUNT(*) FROM hosted_bots WHERE user_id=? AND tg_id IS NOT NULL "
+                  "AND status NOT IN ('canceled','deleted')", (u["id"],)) or 0
+    name = (u["first_name"] or "—")[:14]
+    uname = f" @{u['username']}" if u["username"] else ""
+    return (f"{'⛔' if u['banned'] else '👤'} {name}{uname}"[:34] + f" · 🤖{bots}"
+            + (f" · {money(u['balance'])}" if (u["balance"] or 0) else ""))
+
+
+async def users_view(target, prefix="", page=0, flt="all"):
+    """Все, кто запускал конструктор: новые сверху, по 8 на страницу. flt: all / bots / banned / money."""
+    where = {"all": "1=1",
+             "bots": "id IN (SELECT user_id FROM hosted_bots WHERE tg_id IS NOT NULL AND status NOT IN ('canceled','deleted'))",
+             "banned": "banned=1", "money": "balance > 0"}[flt]
+    total = db.val(f"SELECT COUNT(*) FROM ctor_users WHERE {where}") or 0
+    pages = max((total + PER_PAGE - 1) // PER_PAGE, 1)
+    page = min(max(page, 0), pages - 1)
+    rows_db = db.q(f"SELECT * FROM ctor_users WHERE {where} ORDER BY joined DESC, id DESC LIMIT ? OFFSET ?",
+                   (PER_PAGE, page * PER_PAGE))
     users, today, *_ = stats()
-    top = db.q("SELECT * FROM ctor_users WHERE balance > 0 ORDER BY balance DESC LIMIT 10")
-    text = (f"{prefix}👥 <b>Пользователи конструктора</b>: {users} (+{today} сегодня)\n\n"
-            + ("<b>С балансом:</b>\n" + "\n".join(f"• {core.user_link(u)} — {money(u['balance'])}" for u in top)
-               if top else "<i>Ни у кого нет денег на балансе.</i>"))
-    await render(target, text, kb([
-        [B("💰 Изменить баланс", "ca:ubal", style="primary")],
-        [B("🔎 Найти по ID", "ca:ufind"), B("⛔ Блок / разблок", "ca:uban")],
-        back(),
-    ]))
+    with_bots = db.val("SELECT COUNT(DISTINCT user_id) FROM hosted_bots WHERE tg_id IS NOT NULL "
+                       "AND status NOT IN ('canceled','deleted')") or 0
+    banned = db.val("SELECT COUNT(*) FROM ctor_users WHERE banned=1") or 0
+    names = {"all": "все", "bots": "создали бота", "banned": "в бане", "money": "с балансом"}
+    text = (f"{prefix}👥 <b>Пользователи конструктора</b>\n\n<blockquote>Всего: <b>{users}</b> (+{today} сегодня)\n"
+            f"🤖 Создали бота: <b>{with_bots}</b> · ⛔ в бане: <b>{banned}</b></blockquote>\n\n"
+            f"Показаны: <b>{names[flt]}</b> ({total}) · стр. {page + 1}/{pages}\nНажмите на человека — откроется карточка.")
+    rows = [[B(_user_row(u), f"ca:u:{u['id']}")] for u in rows_db]
+    nav = []
+    if page > 0:
+        nav.append(B("◀️", f"ca:ul:{page - 1}:{flt}"))
+    if pages > 1:
+        nav.append(B(f"{page + 1}/{pages}", "ca:noop"))
+    if page < pages - 1:
+        nav.append(B("▶️", f"ca:ul:{page + 1}:{flt}"))
+    if nav:
+        rows.append(nav)
+    rows.append([B(("• " if flt == k else "") + t, f"ca:ul:0:{k}") for k, t in
+                 (("all", "Все"), ("bots", "С ботом"), ("banned", "Бан"), ("money", "Баланс"))])
+    rows.append([B("🔎 Найти по ID / @username", "ca:ufind", style="primary")])
+    rows.append(back())
+    await render(target, text, kb(rows))
 
 
 @router.callback_query(F.data == "ca:usr")
 async def cb_users(call: CallbackQuery):
     await users_view(call)
     await call.answer()
+
+
+@router.callback_query(F.data.startswith("ca:ul:"))
+async def cb_users_page(call: CallbackQuery):
+    parts = call.data.split(":")
+    page = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+    flt = parts[3] if len(parts) > 3 and parts[3] in ("all", "bots", "banned", "money") else "all"
+    await users_view(call, page=page, flt=flt)
+    await call.answer()
+
+
+STATUS_RU = {"running": "✅ работает", "stopped": "⏸ остановлен", "failed": "⚠️ упал", "expired": "⌛ пробный кончился",
+             "wait_token": "🔑 ждёт токен", "pending": "🔎 проверка оплаты", "rejected": "❌ отклонён"}
+
+
+async def user_card(target, uid, prefix=""):
+    from handlers import builder
+    u = core.user(uid)
+    if not u:
+        return await users_view(target, "Пользователь не найден.\n\n")
+    bots = db.q("SELECT * FROM hosted_bots WHERE user_id=? AND tg_id IS NOT NULL AND status NOT IN ('canceled','deleted') "
+                "ORDER BY id", (uid,))
+    paid = db.q1("SELECT COUNT(*) n, COALESCE(SUM(CASE WHEN method!='stars' THEN amount END),0) rub, "
+                 "COALESCE(SUM(CASE WHEN method='stars' THEN stars END),0) st FROM ctor_payments "
+                 "WHERE user_id=? AND status='paid'", (uid,))
+    pend = db.val("SELECT COUNT(*) FROM ctor_payments WHERE user_id=? AND status='pending'", (uid,)) or 0
+    d, step = core.draft(uid)
+    lines = []
+    for b in bots:
+        tail = (f" · 🎁 до {builder.fmt_until(b['trial_until'])}" if b["trial_until"] else " · ♾ навсегда")
+        lines.append(f"• @{html.escape(b['username'] or '?')} — {STATUS_RU.get(b['status'], b['status'])}{tail}")
+    text = (f"{prefix}👤 <b>{html.escape(u['first_name'] or '—')}</b>\n\n<blockquote>"
+            f"🆔 ID: <code>{u['id']}</code>\n"
+            f"🔗 Юзернейм: {('@' + html.escape(u['username'])) if u['username'] else '—'}\n"
+            f"📅 Первый запуск: {u['joined'] or '—'}\n"
+            f"💰 Баланс: <b>{money(u['balance'])}</b>\n"
+            f"💳 Оплат: <b>{paid['n']}</b> на {money(paid['rub'])}" + (f" + {paid['st']} ⭐" if paid["st"] else "")
+            + (f" · 🔎 на проверке: {pend}" if pend else "") + "\n"
+            f"🎁 Пробный: {'использован' if db.trial_used(uid) else 'не брал'}\n"
+            f"🛠 Сейчас: {('в мастере, шаг «' + step + '»') if step else ('черновик есть' if d else '—')}\n"
+            f"🚦 Статус: {'⛔ <b>в бане</b>' if u['banned'] else '✅ активен'}</blockquote>\n\n"
+            f"🤖 <b>Боты ({len(bots)}):</b>\n" + ("\n".join(lines) if lines else "<i>ещё не создал</i>"))
+    rows = [
+        [B("✅ Разбанить" if u["banned"] else "⛔ Забанить", f"ca:ub:{uid}", style="success" if u["banned"] else "danger")],
+        [B("💰 Изменить баланс", f"ca:ubm:{uid}"), B("✉️ Написать", f"ca:um:{uid}")],
+    ]
+    for b in bots[:6]:
+        rows.append([B(f"🤖 @{b['username'] or b['id']} — управление", f"ca:hv:{b['id']}")])
+    rows.append([B("🔗 Открыть профиль в Telegram", url=f"tg://user?id={uid}")])
+    rows.append(back("ca:ul:0", "◀️ К пользователям"))
+    await render(target, text, kb(rows))
+
+
+@router.callback_query(F.data.startswith("ca:u:"))
+async def cb_user_card(call: CallbackQuery):
+    await user_card(call, int(call.data[5:]))
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("ca:ub:"))
+async def cb_user_ban(call: CallbackQuery):
+    uid = int(call.data[6:])
+    u = core.user(uid)
+    if not u:
+        return await call.answer()
+    if uid in config.ADMINS:
+        return await call.answer("Владельца забанить нельзя 🙂", show_alert=True)
+    db.x("UPDATE ctor_users SET banned=? WHERE id=?", (0 if u["banned"] else 1, uid))
+    await user_card(call, uid, "✅ Разбанен.\n\n" if u["banned"] else "⛔ Забанен.\n\n")
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("ca:ubm:"))
+async def cb_user_money(call: CallbackQuery):
+    uid = int(call.data[7:])
+    await ask(call, "ubal1", "💰 Отправьте сумму: <code>+300</code> — начислить, <code>-100</code> — списать.",
+              cancel=f"ca:u:{uid}", uid=uid)
+
+
+@router.callback_query(F.data.startswith("ca:um:"))
+async def cb_user_msg(call: CallbackQuery):
+    uid = int(call.data[6:])
+    await ask(call, "umsg", "✉️ Отправьте сообщение для пользователя — текст, фото, видео или файл. Он получит его от "
+                            "бота-конструктора.", cancel=f"ca:u:{uid}", uid=uid)
+
+
+@router.callback_query(F.data == "ca:maint")
+async def cb_maint(call: CallbackQuery):
+    on = core.get("maint") == "1"
+    core.put("maint", None if on else "1")
+    await home(call, "✅ Техработы выключены — бот снова доступен всем.\n\n" if on else
+               "🛠 Техработы включены: пользователи видят заглушку (текст — «📝 Тексты бота» → «Техработы»). "
+               "Вам бот доступен как обычно, уже созданные магазины работают.\n\n")
+    await call.answer("Готово")
 
 
 @router.callback_query(F.data == "ca:ubal")
@@ -643,7 +776,7 @@ async def cb_user_balance(call: CallbackQuery):
 
 @router.callback_query(F.data == "ca:ufind")
 async def cb_user_find(call: CallbackQuery):
-    await ask(call, "ufind", "🔎 Отправьте ID пользователя:", cancel="ca:usr")
+    await ask(call, "ufind", "🔎 Отправьте ID или @username пользователя:", cancel="ca:usr")
 
 
 @router.callback_query(F.data == "ca:uban")
@@ -890,7 +1023,7 @@ async def on_input(m: Message, bot: Bot):
     w = _wait.get(uid) or {}
     act = w.get("act")
     txt = (m.text or m.caption or "").strip()
-    if txt.startswith("/") and act not in ("text", "welcome", "bc"):
+    if txt.startswith("/") and act not in ("text", "welcome", "bc", "umsg"):
         _wait.pop(uid, None)
         return await home(m)
 
@@ -984,7 +1117,37 @@ async def on_input(m: Message, bot: Bot):
         if amount > 0:
             await cbot.send(target, core.tx("topup_ok", amount=money(amount), balance=money(u["balance"])))
         return await users_view(m, f"✅ Баланс {core.user_link(u)}: {money(u['balance'])}\n\n")
-    if act in ("ufind", "uban"):
+    if act == "ufind":
+        q = txt.strip().lstrip("@")
+        u = core.user(int(q)) if q.lstrip("-").isdigit() else \
+            db.q1("SELECT * FROM ctor_users WHERE LOWER(username)=LOWER(?)", (q,))
+        if not u:
+            return await m.answer("Не найден — он должен хотя бы раз запустить конструктор. Ещё раз:")
+        finish()
+        return await user_card(m, u["id"])
+    if act == "ubal1":
+        try:
+            amount = round(float(txt.replace(",", ".").replace("₽", "").strip()), 2)
+        except ValueError:
+            return await m.answer("Нужно число, например <code>+300</code>:")
+        uid2 = w["uid"]
+        core.add_balance(uid2, amount)
+        finish()
+        u = core.user(uid2)
+        from ctor import bot as cbot
+        if amount > 0:
+            await cbot.send(uid2, core.tx("topup_ok", amount=money(amount), balance=money(u["balance"])))
+        return await user_card(m, uid2, f"✅ Баланс: {money(u['balance'])}\n\n")
+    if act == "umsg":
+        from ctor import bot as cbot
+        finish()
+        try:
+            await (cbot.bot() or bot).copy_message(w["uid"], m.chat.id, m.message_id)
+            note = "✅ Отправлено.\n\n"
+        except Exception as e:
+            note = f"❌ Не доставлено: {html.escape(str(e))[:120]}\n\n"
+        return await user_card(m, w["uid"], note)
+    if act == "uban":
         if not txt.lstrip("-").isdigit():
             return await m.answer("Нужен числовой ID:")
         u = core.user(int(txt))

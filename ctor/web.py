@@ -41,6 +41,8 @@ async def _auth(request):
     if not tg:
         return None, jerr("auth", "Откройте приложение из Telegram", 401)
     u = core.touch_tg(tg)
+    if core.get("maint") == "1" and tg["id"] not in __import__("config").ADMINS:
+        return None, jerr("maint", core.plain(core.tx("maint")), 503)
     if u["banned"] and tg["id"] not in __import__("config").ADMINS:
         return None, jerr("banned", core.plain(core.tx("banned")), 403)
     if tg["id"] not in __import__("config").ADMINS:  # обязательная подписка (/admin → 📣)

@@ -53,6 +53,15 @@ class Mw(BaseMiddleware):
         if u is None or u.is_bot:
             return await handler(event, data)
         row = core.touch_user(u)
+        if isinstance(event, Message) and event.successful_payment:  # оплата уже списана — проводим всегда
+            data["cu"] = row
+            return await handler(event, data)
+        if core.get("maint") == "1" and u.id not in config.ADMINS:  # /admin → 🛠 Техработы
+            if isinstance(event, CallbackQuery):
+                return await event.answer(core.plain(tx("maint"))[:190], show_alert=True)
+            if isinstance(event, Message) and event.chat.type == "private":
+                return await event.answer(tx("maint"))
+            return None
         if row["banned"] and u.id not in config.ADMINS:
             if isinstance(event, CallbackQuery):
                 return await event.answer(core.plain(tx("banned")), show_alert=True)
