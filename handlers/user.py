@@ -31,7 +31,45 @@ async def show_main(target, lang, uid, state: FSMContext = None):
              balance=money(u["balance"] if u else 0), orders=db.count_user_orders(uid),
              status=html.escape(appcfg.status_label(u)))
     media = as_media(db.get_setting("welcome_photo"), db.get_setting("welcome_media_type"))
+    if not media and db.get_setting("welcome_local"):
+        # фото приветствия из бота-конструктора: отправляем файл один раз и запоминаем его file_id
+        if await _send_local_welcome(target, text, main_kb(lang, admins.is_admin(uid))):
+            return
     await render(target, text, main_kb(lang, admins.is_admin(uid)), photo=media)
+
+
+async def _send_local_welcome(target, text, markup):
+    import logging
+    import os
+    from aiogram.types import FSInputFile
+    path, kind = db.get_setting("welcome_local"), db.get_setting("welcome_local_type") or "photo"
+    if not path or not os.path.exists(path):
+        db.set_setting("welcome_local", None)
+        return False
+    msg = target.message if isinstance(target, CallbackQuery) else target
+    try:
+        f = FSInputFile(path)
+        if kind == "video":
+            sent = await msg.bot.send_video(msg.chat.id, f, caption=text, reply_markup=markup)
+            fid = sent.video.file_id
+        elif kind == "animation":
+            sent = await msg.bot.send_animation(msg.chat.id, f, caption=text, reply_markup=markup)
+            fid = sent.animation.file_id
+        else:
+            sent = await msg.bot.send_photo(msg.chat.id, f, caption=text, reply_markup=markup)
+            fid = sent.photo[-1].file_id
+    except Exception as e:
+        logging.warning("фото приветствия не отправилось: %s", e)
+        return False
+    db.set_setting("welcome_photo", fid)
+    db.set_setting("welcome_media_type", kind)
+    db.set_setting("welcome_local", None)
+    if isinstance(target, CallbackQuery):
+        try:
+            await target.message.delete()
+        except Exception:
+            pass
+    return True
 
 
 @router.message(CommandStart())

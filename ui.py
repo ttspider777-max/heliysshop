@@ -116,7 +116,9 @@ def main_kb(lang, is_admin=False):
         [shop_btn(lang)],                                     # «🛍 Открыть магазин» — мини-приложение
         [btn("profile", lang, "profile"), btn("orders", lang, "ord:m:0")],
         [btn("codex", lang, "codex")] if codex_on() else [],  # «🔐 Верификация Codex»
-        [] if config.CHILD else [btn("mkbot", lang, "mkbot")],  # «🤖 Создать своего бота»
+        # «🤖 Создать своего бота»: в основном боте — свой раздел, в магазинах из конструктора — ссылка на конструктор
+        ([btn("mkbot", lang, url=config.CTOR_URL)] if config.CTOR_URL else []) if config.CHILD
+        else [btn("mkbot", lang, "mkbot")],
         [btn("suppliers", lang, f"l:c{db.suppliers_cid()}:0"), btn("refs", lang, "refs")],
         [btn("promo", lang, "promo"), btn("lang", lang, "lang")],
         [btn("support", lang, "sup"), btn("reviews", lang, url=reviews) if reviews else None],

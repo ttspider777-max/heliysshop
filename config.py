@@ -61,6 +61,8 @@ if CHILD:
     PUBLIC_URL = str(c.get("public_url") or "")
     EXPECT_BOT_ID = int(c.get("tg_id") or 0)
     MAIN_BOT_ID = int(c.get("main_bot_id") or 0)
+    # магазин создан через бот-конструктор: кнопка «🤖 Создать своего бота» ведёт в конструктор
+    CTOR_URL = str(c.get("ctor_url") or "")
     # защита: бот клиента работает только со своим токеном и своей базой
     _tok_id = BOT_TOKEN.split(":", 1)[0]
     if not _tok_id.isdigit() or int(_tok_id) != EXPECT_BOT_ID or int(_tok_id) == MAIN_BOT_ID:
@@ -86,6 +88,7 @@ else:
     WEB_PORT = int(os.getenv("PORT") or 8080)
     PUBLIC_URL = os.getenv("PUBLIC_URL") or os.getenv("WEBAPP_URL") or ""  # например https://bot-xxx.bothost.tech
     EXPECT_BOT_ID = MAIN_BOT_ID = 0
+    CTOR_URL = ""
 
 SHOP_TITLE = SHOP_NAME if CHILD else "heliys 𝗌𝗁𝗈𝗉"  # заголовок в приветствии
 

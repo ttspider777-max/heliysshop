@@ -83,6 +83,7 @@ a { color: var(--accent); }
 .badge .bi { width: 24px; height: 24px; display: grid; place-items: center; font-size: 18px; }
 .logo { width: 42px; height: 42px; border-radius: 50%; overflow: hidden; flex: none; border: 1.5px solid rgba(255,255,255,.25); background: #151517; display: grid; place-items: center; font: 600 12px var(--display); }
 .logo img { width: 100%; height: 100%; object-fit: cover; }
+.hero-desc { position: relative; z-index: 1; margin-top: 6px; max-width: 32ch; font-size: 13.5px; line-height: 1.4; color: rgba(255,255,255,.8); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .hero-bottom { position: absolute; z-index: 1; left: 16px; right: 16px; bottom: 14px; }
 .hero-label { font-size: 13px; color: rgba(255,255,255,.72); font-weight: 600; }
 .balance-row { display: flex; align-items: center; gap: 12px; margin-top: 2px; }
@@ -763,6 +764,7 @@ function heroHtml() {
     <div class="hero-media">${bg}</div>
     <div class="fx">${fxHtml(sh.season)}</div>
     <div class="hero-top"><div class="hero-title">${sh.title}</div>${badge}${logo}</div>
+    ${sh.desc ? `<div class="hero-desc">${sh.desc}</div>` : ""}
     <div class="hero-bottom">
       <div class="hero-label">${T("app_balance")}</div>
       <div class="balance-row"><div class="balance">${Number(whole).toLocaleString("ru-RU")}${frac ? "," + frac : ""}<small>₽</small></div>

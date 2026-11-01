@@ -63,6 +63,7 @@ async def app_view(target, prefix=""):
         [B(f"🎭 Стиль: {appcfg.SEASONS[season][0]}", "a:apps", style="primary")],
         [B(f"🌓 Тема: {appcfg.THEMES[appcfg.theme()]}", "a:appt"), B(f"✨ Анимации: {_onoff(appcfg.fx_on())}", "a:appfx")],
         [B("🏷 Название", "a:appv:app_title"), B("🎃 Текст бейджа", "a:appbadge")],
+        [B("📝 Описание витрины", "a:appv:app_desc")],
         [B("🖼 Фон карточки", "a:appm:app_bg"), B("🔵 Логотип", "a:appm:app_logo")],
         [B("🌌 Обои", "a:appm:app_wall"), B("🎨 Акцентный цвет", "a:appv:app_accent")],
         [B("💎 Иконки и премиум-эмодзи", "a:appi:0", style="primary")],
@@ -132,6 +133,9 @@ APP_VALUES = {
     "app_title": ("🏷 Название на карточке", "Отправьте название магазина для карточки на главной "
                                            "(например <code>Snow Shop</code>). Можно с <b>премиум-эмодзи</b>. "
                                            "<code>-</code> — как у бота."),
+    "app_desc": ("📝 Описание витрины", "Отправьте короткое описание магазина (до 200 символов) — оно появится "
+                                       "под названием на главной карточке. Можно с <b>премиум-эмодзи</b>. "
+                                       "<code>-</code> — убрать."),
     "app_accent": ("🎨 Акцентный цвет", "Отправьте цвет в формате <code>#ff7a1a</code> — им подсветятся кнопки и "
                                        "акценты. <code>-</code> — цвет текущего сезона."),
 }
@@ -154,8 +158,9 @@ async def i_value(m, state, d, txt, bot):
             return await m.answer("Нужен цвет вида <code>#ff7a1a</code>:")
         db.set_setting(key, "#" + txt.lstrip("#").lower())
     else:
-        if len(txt) > 40:
-            return await m.answer("Слишком длинно — до 40 символов. Ещё раз:")
+        limit = 200 if key == "app_desc" else 40
+        if len(txt) > limit:
+            return await m.answer(f"Слишком длинно — до {limit} символов. Ещё раз:")
         # html_text сохраняет премиум-эмодзи (<tg-emoji>) — мини-приложение покажет их анимированными
         db.set_setting(key, m.html_text if m.text else txt)
     await state.clear()

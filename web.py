@@ -446,6 +446,7 @@ async def api_boot(request):
     shop = {
         # название и бейдж — HTML с премиум-эмодзи (очищенный), title_plain — для заголовка вкладки
         "title": sanitize(appcfg.card_title()), "title_plain": re.sub(r"<[^>]+>", "", appcfg.card_title()),
+        "desc": sanitize(db.get_setting("app_desc") or ""),
         "name": config.SHOP_NAME, "season": s, "badge": sanitize(appcfg.badge(lang, s)),
         "accent": appcfg.accent(), "theme": appcfg.theme(), "fx": appcfg.fx_on(),
         "bg": media_url(db.get_setting("app_bg"), db.get_setting("app_bg_type")),
@@ -975,6 +976,8 @@ async def start(bot=None):
     app.router.add_post("/api/admin/pack_del", api_admin_pack_del)
     if not config.CHILD:
         app.router.add_route("*","/b/{bid:\\d+}/{tail:.*}", child_proxy)
+        from ctor import web as ctor_web  # мини-приложение бота-конструктора: /c/app и /c/api/*
+        ctor_web.setup(app)
     runner = web.AppRunner(app)
     await runner.setup()
     try:

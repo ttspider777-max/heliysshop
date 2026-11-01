@@ -401,6 +401,22 @@ async def _trial_receipt(call: CallbackQuery, bot: Bot, b, ok):
         await call.answer("Отклонено")
 
 
+def from_ctor(b):
+    """Магазин создан через бот-конструктор — владельцу пишем от конструктора."""
+    return b is not None and "source" in b.keys() and b["source"] == "ctor"
+
+
+def _ctor():
+    from ctor import bot as ctor_bot
+    return ctor_bot
+
+
+async def owner_send(bot: Bot, b, text, markup=None):
+    if from_ctor(b) and _ctor().running():
+        return await _ctor().send(b["user_id"], text)
+    return await safe_send(bot, b["user_id"], text, markup)
+
+
 async def trial_loop(bot: Bot):
     """Раз в минуту: напоминаем за сутки до конца пробного и выключаем ботов, у которых он закончился."""
     while True:
@@ -417,6 +433,9 @@ async def _trial_tick(bot: Bot):
     price = money(bot_price())
     for b in db.trials_to_warn():
         db.set_hosted(b["id"], trial_warned=1)
+        if from_ctor(b):
+            await _ctor().trial_notice(b, "soon")
+            continue
         u = db.get_user(b["user_id"])
         lang = u["lang"] if u else "ru"
         await safe_send(bot, b["user_id"], t("mb_trial_soon", lang, username=html.escape(b["username"] or "?"),
@@ -426,6 +445,11 @@ async def _trial_tick(bot: Bot):
         await hosting.stop(b["id"])
         u = db.get_user(b["user_id"])
         lang = u["lang"] if u else "ru"
+        if from_ctor(b):
+            await _ctor().trial_notice(b, "over")
+            await to_admins(bot, f"⌛ Пробный период магазина #{b['id']} ({bot_name(b)}) из конструктора закончился — "
+                                 f"бот выключен.")
+            continue
         await safe_send(bot, b["user_id"], t("mb_trial_over", lang, username=html.escape(b["username"] or "?"),
                                              price=price), buy_kb(b["id"], lang) if b["token"] else None)
         await to_admins(bot, f"⌛ Пробный период бота клиента #{b['id']} ({bot_name(b)}) закончился — бот выключен.\n"
@@ -468,7 +492,7 @@ async def hb_view(target, bid, prefix=""):
         return await hb_list(target, "Бот не найден.\n\n")
     u = db.get_user(b["user_id"])
     text = (f"{prefix}🤖 <b>Бот клиента #{b['id']}</b>\n\n"
-            f"🤖 Бот: {bot_name(b)}\n"
+            f"🤖 Бот: {bot_name(b)}" + (" · 🏗 из конструктора" if from_ctor(b) else "") + "\n"
             f"👤 Владелец: {user_link(u) if u else b['user_id']}\n"
             f"📍 Статус: {bot_status(b['status'], 'ru')}"
             + (" (процесс работает)" if hosting.is_alive(b["id"]) else "") + "\n"
@@ -714,8 +738,8 @@ async def cb_hb_trial_extend(call: CallbackQuery, bot: Bot):
         if not await hosting.launch(bid):
             note += "⚠️ Бот не запустился — смотрите лог.\n\n"
     u = db.get_user(b["user_id"])
-    await safe_send(bot, b["user_id"], t("mb_trial_extended", u["lang"] if u else "ru",
-                                         username=html.escape(b["username"] or "?"), until=fmt_until(until)))
+    await owner_send(bot, b, t("mb_trial_extended", u["lang"] if u else "ru",
+                               username=html.escape(b["username"] or "?"), until=fmt_until(until)))
     await hb_view(call, bid, note)
 
 
@@ -728,7 +752,7 @@ async def cb_hb_trial_permanent(call: CallbackQuery, bot: Bot):
     await call.answer("Готово")
     running = await make_permanent(bot, b)
     u = db.get_user(b["user_id"])
-    await safe_send(bot, b["user_id"], t("mb_bought", u["lang"] if u else "ru", username=html.escape(b["username"] or "?")))
+    await owner_send(bot, b, t("mb_bought", u["lang"] if u else "ru", username=html.escape(b["username"] or "?")))
     await hb_view(call, bid, "♾ Бот бессрочный.\n\n" if running else "♾ Бот бессрочный, но не запустился — смотрите лог.\n\n")
 
 

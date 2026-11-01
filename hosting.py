@@ -108,6 +108,9 @@ def _write_cfg(b):
         "port": child_port(b["id"]),
         "public_url": f"{base}/b/{b['id']}" if base else "",
     }
+    if "source" in b.keys() and b["source"] == "ctor":  # магазин из бота-конструктора
+        from ctor import bot as ctor_bot
+        cfg["ctor_url"] = ctor_bot.link()
     path = cfg_path(b["id"])
     fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -210,8 +213,12 @@ async def _on_failed(b, identity=False):
     if identity:
         return await to_admins(_bot, f"🛑 Бот клиента #{b['id']} (@{b['username']}) остановлен защитой: он запустился "
                                      f"не со своим токеном или базой. Лог: <code>{log_path(b['id'])}</code>")
-    u = db.get_user(b["user_id"])
-    await safe_send(_bot, b["user_id"], t("mb_failed", u["lang"] if u else "ru", username=b["username"] or "?"))
+    if "source" in b.keys() and b["source"] == "ctor":  # владелец пришёл из конструктора — пишем оттуда
+        from ctor import bot as ctor_bot
+        await ctor_bot.failed_notice(b)
+    else:
+        u = db.get_user(b["user_id"])
+        await safe_send(_bot, b["user_id"], t("mb_failed", u["lang"] if u else "ru", username=b["username"] or "?"))
     await to_admins(_bot, f"⚠️ Бот клиента #{b['id']} (@{b['username']}) постоянно падает и остановлен.\n"
                           f"Скорее всего, владелец отозвал токен. Лог: <code>{log_path(b['id'])}</code>")
 
