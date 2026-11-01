@@ -49,15 +49,33 @@ CREATE TABLE IF NOT EXISTS ctor_drafts (
     step TEXT,
     updated TEXT
 );
+CREATE TABLE IF NOT EXISTS ctor_promos (
+    code TEXT PRIMARY KEY,   -- в верхнем регистре
+    kind TEXT,               -- percent (скидка %) / rub (скидка ₽) / days (+дни пробного)
+    value REAL,
+    max_uses INTEGER DEFAULT 0,  -- 0 — без лимита
+    used INTEGER DEFAULT 0,
+    until TEXT,              -- до какого момента действует (NULL — бессрочно)
+    created TEXT
+);
+CREATE TABLE IF NOT EXISTS ctor_promo_uses (code TEXT, user_id INTEGER, ts TEXT, PRIMARY KEY (code, user_id));
 """
 
 
 def init():
     db.conn.executescript(SCHEMA)
-    cols = [r["name"] for r in db.conn.execute("PRAGMA table_info(hosted_bots)")]
-    for col in ("source", "cfg"):  # source='ctor' — магазин создан через конструктор; cfg — данные мастера
+    for table, col, ddl in (
+            ("hosted_bots", "source", "TEXT"),       # 'ctor' — магазин создан через конструктор
+            ("hosted_bots", "cfg", "TEXT"),          # данные мастера
+            ("hosted_bots", "reminded", "TEXT"),     # какие напоминания о пробном уже отправлены (JSON)
+            ("ctor_payments", "promo", "TEXT"),      # промокод, со скидкой по которому выставлен счёт
+            ("ctor_users", "referrer_id", "INTEGER"),          # кто пригласил
+            ("ctor_users", "ref_earned", "REAL DEFAULT 0"),    # сколько заработал на рефералах
+            ("ctor_users", "promo", "TEXT"),                   # введённый промокод, ждёт оплаты
+            ("ctor_users", "autobuy", "INTEGER DEFAULT 1")):   # покупать пробных ботов с баланса сам
+        cols = [r["name"] for r in db.conn.execute(f"PRAGMA table_info({table})")]
         if col not in cols:
-            db.conn.execute(f"ALTER TABLE hosted_bots ADD COLUMN {col} TEXT")
+            db.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
     db.conn.commit()
 
 
@@ -120,6 +138,15 @@ def stars_price():
     return max(int(math.ceil(price() / max(rate, 0.01))), 1)
 
 
+def stars_for(amount):
+    """Цена в звёздах для суммы со скидкой: пропорционально базовой цене в звёздах."""
+    import math
+    base = price()
+    if amount >= base or base <= 0:
+        return stars_price()
+    return max(int(math.ceil(stars_price() * amount / base)), 1)
+
+
 def pay_on(method):
     """Способ оплаты включён (звёзды и СБП — переключатели в /admin, крипта — когда вставлен API-токен)."""
     if method in ("cryptobot", "xrocket"):
@@ -158,6 +185,139 @@ def mark_paid(pid, receipt=None):
                           "WHERE id=? AND status IN ('wait','pending')", (receipt, pid))
     db.conn.commit()
     return cur.rowcount == 1
+
+
+def flag_on(key):
+    """Переключатель в /admin: по умолчанию включён, «0» — выключен."""
+    return get(key) != "0"
+
+
+# ======================= рефералы =======================
+def ref_percent():
+    """Сколько % от каждой оплаты друга получает пригласивший (/admin → 🤝 Рефералы). 0 — программа выключена."""
+    try:
+        return min(max(float(get("ref_percent", 15)), 0), 100)
+    except (TypeError, ValueError):
+        return 15.0
+
+
+def ref_link(uid):
+    from ctor import bot as cbot
+    u = cbot.username()
+    return f"https://t.me/{u}?start=r{uid}" if u else ""
+
+
+def set_referrer(uid, ref_id):
+    """Запоминает пригласившего: только один раз, не себя и только пока человек ничего не создал и не оплатил."""
+    if ref_id == uid or ref_percent() <= 0:
+        return False
+    u, r = user(uid), user(ref_id)
+    if not u or not r or u["referrer_id"]:
+        return False
+    if db.val("SELECT COUNT(*) FROM hosted_bots WHERE user_id=? AND tg_id IS NOT NULL", (uid,)) or \
+            db.val("SELECT COUNT(*) FROM ctor_payments WHERE user_id=? AND status='paid'", (uid,)):
+        return False
+    if r["referrer_id"] == uid:  # двое не могут пригласить друг друга
+        return False
+    db.x("UPDATE ctor_users SET referrer_id=? WHERE id=? AND referrer_id IS NULL", (ref_id, uid))
+    return True
+
+
+def ref_stats(uid):
+    """-> (приглашено, из них с оплатой, заработано)."""
+    invited = db.val("SELECT COUNT(*) FROM ctor_users WHERE referrer_id=?", (uid,)) or 0
+    paid = db.val("SELECT COUNT(DISTINCT p.user_id) FROM ctor_payments p JOIN ctor_users u ON u.id=p.user_id "
+                  "WHERE u.referrer_id=? AND p.status='paid' AND p.amount>0", (uid,)) or 0
+    u = user(uid)
+    return invited, paid, round((u["ref_earned"] if u else 0) or 0, 2)
+
+
+def ref_reward(p):
+    """Начисляет пригласившему его % от оплаты. -> (id пригласившего, сумма) или None."""
+    u = user(p["user_id"])
+    if not u or not u["referrer_id"] or (p["amount"] or 0) <= 0:
+        return None
+    reward = round(p["amount"] * ref_percent() / 100, 2)
+    if reward <= 0 or not user(u["referrer_id"]):
+        return None
+    db.x("UPDATE ctor_users SET balance=ROUND(balance+?, 2), ref_earned=ROUND(COALESCE(ref_earned,0)+?, 2) "
+         "WHERE id=?", (reward, reward, u["referrer_id"]))
+    return u["referrer_id"], reward
+
+
+# ======================= промокоды =======================
+PROMO_RE = re.compile(r"^[A-Za-z0-9_\-]{3,24}$")
+PROMO_KINDS = {"percent": "скидка %", "rub": "скидка ₽", "days": "+дни пробного"}
+
+
+def promo(code):
+    return db.q1("SELECT * FROM ctor_promos WHERE code=?", ((code or "").strip().upper(),))
+
+
+def promo_label(p):
+    v = p["value"]
+    n = int(v) if v == int(v) else v
+    if p["kind"] == "percent":
+        return f"−{n}%"
+    if p["kind"] == "rub":
+        return f"−{money(v)}"
+    return f"+{n} {days_word(n)} пробного"
+
+
+def promo_check(code, uid):
+    """-> (промокод, None) или (None, текст ошибки)."""
+    p = promo(code)
+    if not p:
+        return None, "not_found"
+    if p["until"] and p["until"] <= db.now():
+        return None, "expired"
+    if p["max_uses"] and p["used"] >= p["max_uses"]:
+        return None, "expired"
+    if db.q1("SELECT 1 FROM ctor_promo_uses WHERE code=? AND user_id=?", (p["code"], uid)):
+        return None, "used"
+    return p, None
+
+
+def active_promo(uid):
+    """Введённый, но ещё не использованный промокод человека (если всё ещё действует)."""
+    u = user(uid)
+    if not u or not u["promo"]:
+        return None
+    p, _ = promo_check(u["promo"], uid)
+    return p
+
+
+def set_user_promo(uid, code):
+    db.x("UPDATE ctor_users SET promo=? WHERE id=?", (code, uid))
+
+
+def use_promo(code, uid):
+    """Промокод израсходован этим человеком (после оплаты или продления пробного)."""
+    cur = db.conn.execute("INSERT OR IGNORE INTO ctor_promo_uses(code, user_id, ts) VALUES (?, ?, ?)",
+                          (code, uid, db.now()))
+    if cur.rowcount:
+        db.conn.execute("UPDATE ctor_promos SET used=used+1 WHERE code=?", (code,))
+    db.conn.execute("UPDATE ctor_users SET promo=NULL WHERE id=? AND promo=?", (uid, code))
+    db.conn.commit()
+
+
+def final_price(uid):
+    """Цена бота для человека с учётом введённого промокода. -> (сумма ₽, промокод или None)."""
+    base = price()
+    p = active_promo(uid)
+    if not p or p["kind"] == "days":
+        return base, None
+    if p["kind"] == "percent":
+        amount = base * (100 - min(max(p["value"], 0), 100)) / 100
+    else:
+        amount = base - p["value"]
+    return round(max(amount, 0), 2), p
+
+
+def promo_days(uid):
+    """Сколько дней пробного добавляет введённый промокод (0 — нет такого промокода)."""
+    p = active_promo(uid)
+    return int(p["value"]) if p and p["kind"] == "days" else 0
 
 
 def topup_min():
@@ -351,6 +511,51 @@ TEXTS = {
     "retoken": ("🔑 Новый токен для бота", "🔑 Пришли новый токен бота @{username} из @BotFather (/token)."),
     "retoken_other": ("❌ Токен от другого бота", "❌ Это токен другого бота. Нужен токен именно @{username}."),
     "retoken_ok": ("✅ Бот снова работает", "✅ Бот @{username} снова работает."),
+    # ---------- шаблоны ----------
+    "step_template": ("🧩 Шаг «Готовый набор товаров»", (
+        "🧩 <b>Готовый набор товаров</b>\n\nЧто будешь продавать? Я сразу добавлю категории и примеры товаров — "
+        "цены, описания и остатки потом поменяешь в /admin своего бота.\n\n"
+        "<i>Примеры товаров создаются без остатка: покупатели увидят «нет в наличии», пока ты не загрузишь свои.</i>")),
+    # ---------- рефералы ----------
+    "ref": ("🤝 Рефералы — экран", (
+        "🤝 <b>Приглашай друзей — получай {percent}</b>\n\nС каждой оплаты друга тебе на баланс приходит "
+        "<b>{percent}</b>. Балансом можно оплатить своих ботов.\n\n<blockquote>"
+        "👥 Пришли по ссылке: <b>{invited}</b>\n💳 Из них оплатили: <b>{paid}</b>\n💰 Заработано: <b>{earned}</b>"
+        "</blockquote>\n\n🔗 Твоя ссылка:\n<code>{link}</code>")),
+    "ref_joined": ("🤝 Пригласившему: друг пришёл", "👋 По твоей ссылке пришёл <b>{name}</b>. Когда он оплатит бота — "
+                                                    "тебе придёт {percent} на баланс."),
+    "ref_reward": ("🤝 Пригласившему: друг оплатил", "🤝 <b>{name}</b> оплатил бота — тебе <b>+{amount}</b> на баланс.\n"
+                                                     "💰 Баланс: <b>{balance}</b>"),
+    "ref_share": ("🤝 Текст для «Поделиться»", "Делаю свой магазин в Telegram за 5 минут — попробуй тоже 👇"),
+    # ---------- промокоды ----------
+    "promo_ask": ("🎟 Ввод промокода", "🎟 <b>Промокод</b>\n\nПришли промокод одним сообщением:"),
+    "promo_ok": ("🎟 Промокод применён", "✅ Промокод <b>{code}</b> применён: <b>{label}</b>."),
+    "promo_days_ok": ("🎟 Промокод: пробный продлён", "✅ Промокод <b>{code}</b>: пробный период @{username} продлён "
+                                                       "до <b>{until}</b>."),
+    "promo_days_saved": ("🎟 Промокод: дни при создании", "✅ Промокод <b>{code}</b>: <b>{label}</b> — добавлю их, "
+                                                          "когда запустишь бота на пробном периоде."),
+    "promo_not_found": ("🎟 Промокод не найден", "❌ Такого промокода нет. Проверь и пришли ещё раз:"),
+    "promo_expired": ("🎟 Промокод закончился", "⌛ Этот промокод больше не действует."),
+    "promo_used": ("🎟 Промокод уже использован", "Ты уже использовал этот промокод."),
+    "promo_line": ("🎟 Строка о промокоде в оплате", "🎟 Промокод <b>{code}</b>: {label} — <s>{old}</s> → <b>{price}</b>\n"),
+    # ---------- напоминания и автопокупка ----------
+    "remind_3d": ("⏰ Напоминание за 3 дня", "⏰ До конца пробного периода @{username} — <b>3 дня</b> (до {until}).\n\n"
+                                            "Купи бота навсегда за {price}, чтобы магазин работал без перерыва."),
+    "remind_3h": ("⏰ Напоминание за 3 часа", "⏰ <b>Через 3 часа</b> пробный период @{username} закончится и бот "
+                                             "выключится.\n\nКупи его навсегда за {price} — товары и покупатели "
+                                             "останутся на месте."),
+    "remind_after": ("⌛ Напоминание после выключения", "⌛ Бот @{username} выключен уже <b>{days}</b>.\n\nВсе товары, "
+                                                       "покупатели и настройки сохранены — купи бота за {price}, и он "
+                                                       "сразу заработает."),
+    "autobuy_hint": ("🔁 Строка: куплю сам с баланса", "\n\n🔁 На балансе хватает — куплю бота автоматически перед концом "
+                                                      "пробного."),
+    "autobuy_need": ("🔁 Строка: пополни — куплю сам", "\n\n🔁 Пополни баланс ещё на <b>{need}</b> — и я куплю бота сам, "
+                                                      "ничего нажимать не нужно."),
+    "autobought": ("🔁 Автопокупка выполнена", "🔁 <b>Автопокупка</b>: списал {price} с баланса — бот @{username} "
+                                              "теперь твой навсегда.\n💰 Остаток: <b>{balance}</b>"),
+    "autobuy_info": ("🔁 Подсказка в «Мои боты»", "\n\n🔁 Автопокупка: <b>{state}</b> — если на балансе хватает, "
+                                                 "пробный бот покупается сам перед концом срока или сразу после "
+                                                 "пополнения."),
     "banned": ("⛔ Блокировка", "⛔ Доступ к конструктору закрыт."),
     "maint": ("🛠 Техработы", "🛠 <b>Конструктор на техработах</b>\n\nСовсем скоро вернёмся — попробуй чуть позже. "
                              "Уже созданные магазины работают как обычно."),
@@ -392,7 +597,8 @@ APP_TEXTS = {
     "app_next": ("«Далее»", "Далее"),
     "app_back": ("«Назад»", "Назад"),
     "app_finish": ("Финальная кнопка", "Продолжить в чате"),
-    "app_finish_hint": ("Подсказка у финальной кнопки", "Дальше бот попросит приветствие, поддержку и токен"),
+    "app_finish_hint": ("Подсказка у финальной кнопки", "Дальше бот предложит набор товаров, попросит приветствие, "
+                                                         "поддержку и токен"),
     "app_preview": ("«Так будет выглядеть»", "Так будет выглядеть витрина"),
     "app_trial": ("Плашка пробного", "{days} бесплатно"),
     "app_price": ("Плашка цены", "Навсегда — {price}"),
@@ -466,6 +672,11 @@ BUTTONS = {
     "pay_balance": ("Оплата с баланса", "💰 С баланса", None),
     "pay_open": ("Открыть счёт (крипта)", "💎 Оплатить", "success"),
     "pay_check": ("Проверить оплату", "🔄 Проверить оплату", None),
+    "ref": ("Пригласить друга", "🤝 Пригласить друга", None),
+    "ref_share": ("Поделиться ссылкой", "📤 Поделиться ссылкой", "primary"),
+    "promo": ("Промокод", "🎟 Промокод", None),
+    "pay_free": ("Создать бесплатно (100% скидка)", "🎁 Получить бесплатно", "success"),
+    "autobuy": ("Автопокупка (вкл/выкл)", "🔁 Автопокупка", None),
 }
 STYLES = {"": "обычный", "primary": "синий", "success": "зелёный", "danger": "красный"}
 
@@ -603,7 +814,76 @@ def drop_draft(uid):
 
 
 # порядок шагов мастера: первый незаполненный — следующий
-ORDER = ("color", "style", "title", "desc", "welcome", "support", "token")
+ORDER = ("color", "style", "title", "desc", "template", "welcome", "support", "token")
+
+# ======================= шаблоны магазинов =======================
+# ключ -> (кнопка, описание, [(категория, [(товар, описание, цена, выдача)])]).
+# Выдача: auto — со склада (создаётся без остатка), manual — вручную. Товары с ручной выдачей создаются
+# скрытыми (active=0), чтобы покупатель не оплатил услугу, которую владелец ещё не готов оказать.
+TEMPLATES = {
+    "empty": ("📭 Пустой магазин", "Добавлю категории и товары сам", []),
+    "accounts": ("🎮 Аккаунты", "Игровые и соцсети", [
+        ("🎮 Игровые аккаунты", [
+            ("Steam — аккаунт с играми", "Аккаунт Steam с купленными играми. Данные для входа придут сразу после оплаты.", 299, "auto"),
+            ("Epic Games — аккаунт", "Аккаунт Epic Games с библиотекой игр. Почта меняется.", 199, "auto"),
+            ("Minecraft Java — лицензия", "Лицензионный аккаунт Minecraft Java Edition.", 499, "auto"),
+        ]),
+        ("📱 Соцсети", [
+            ("Telegram — аккаунт", "Готовый аккаунт Telegram, вход по коду.", 149, "auto"),
+            ("Instagram — аккаунт", "Аккаунт Instagram с подтверждённой почтой.", 99, "auto"),
+            ("TikTok — аккаунт", "Чистый аккаунт TikTok для продвижения.", 89, "auto"),
+        ]),
+    ]),
+    "subs": ("🔑 Подписки и ключи", "Сервисы, ключи активации", [
+        ("🎧 Подписки", [
+            ("Spotify Premium — 1 месяц", "Подписка Spotify Premium на ваш аккаунт.", 199, "auto"),
+            ("YouTube Premium — 1 месяц", "YouTube без рекламы и с фоновым воспроизведением.", 249, "auto"),
+            ("Discord Nitro — 1 месяц", "Ссылка-подарок Discord Nitro.", 349, "auto"),
+        ]),
+        ("🔑 Ключи активации", [
+            ("Windows 11 Pro — ключ", "Ключ активации Windows 11 Pro, привязывается к ПК.", 390, "auto"),
+            ("Office 2021 — ключ", "Ключ Microsoft Office 2021 Pro Plus.", 490, "auto"),
+        ]),
+    ]),
+    "ai": ("🤖 AI-сервисы", "ChatGPT, Midjourney и другие", [
+        ("🤖 AI-сервисы", [
+            ("ChatGPT Plus — 1 месяц", "Доступ к ChatGPT Plus на месяц.", 1490, "auto"),
+            ("Midjourney — 1 месяц", "Подписка Midjourney Basic.", 990, "auto"),
+            ("Claude Pro — 1 месяц", "Доступ к Claude Pro на месяц.", 1590, "auto"),
+        ]),
+        ("🧠 Аккаунты AI", [
+            ("ChatGPT — аккаунт", "Готовый аккаунт ChatGPT с почтой.", 149, "auto"),
+        ]),
+    ]),
+    "numbers": ("📱 Номера", "Номера для регистрации", [
+        ("📱 Номера для Telegram", [
+            ("Номер РФ для Telegram", "Номер для регистрации Telegram, код придёт в бот.", 79, "auto"),
+            ("Номер США для Telegram", "Иностранный номер для регистрации Telegram.", 99, "auto"),
+        ]),
+        ("💬 Номера для WhatsApp", [
+            ("Номер РФ для WhatsApp", "Номер для регистрации WhatsApp.", 59, "auto"),
+        ]),
+    ]),
+    "services": ("🛠 Услуги", "Дизайн, монтаж, помощь", [
+        ("🎨 Дизайн", [
+            ("Аватарка для канала", "Уникальная аватарка для канала или бота. Срок — 1 день.", 500, "manual"),
+            ("Баннер для поста", "Рекламный баннер под ваш пост.", 700, "manual"),
+        ]),
+        ("🎬 Монтаж", [
+            ("Монтаж ролика до 1 минуты", "Shorts / Reels / TikTok с титрами и музыкой.", 900, "manual"),
+        ]),
+    ]),
+}
+
+
+def template_label(d):
+    t = TEMPLATES.get(d.get("template") or "empty")
+    return t[0] if t else "—"
+
+
+def template_counts(key):
+    cats = TEMPLATES.get(key, ("", "", []))[2]
+    return len(cats), sum(len(items) for _, items in cats)
 
 
 def next_step(d):

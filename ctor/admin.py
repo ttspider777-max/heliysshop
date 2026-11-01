@@ -67,7 +67,15 @@ async def route_back(call: CallbackQuery, target):
         return await pay_view(call)
     if target.startswith("ca:ic:"):
         return await icon_view(call, target[6:])
+    if target == "ca:ref":
+        return await ref_view(call)
+    if target == "ca:prm":
+        return await promos_view(call)
     await home(call)
+
+
+def _pct(v):
+    return f"{int(v) if v == int(v) else v}%"
 
 
 # ======================= главная =======================
@@ -111,6 +119,9 @@ async def home(target, prefix=""):
         [B("💳 Реквизиты СБП", "ca:v:sbp"), B("💬 Поддержка", "ca:v:support_url")],
         [B("💵 Мин. пополнение", "ca:v:topup_min"), B("🌐 Адрес сайта", "ca:v:site")],
         [B("👨‍💼 Куратор", "ca:v:curator")],
+        [B(f"🤝 Рефералы ({_pct(core.ref_percent()) if core.ref_percent() else 'выкл'})", "ca:ref"),
+         B(f"🎟 Промокоды ({db.val('SELECT COUNT(*) FROM ctor_promos') or 0})", "ca:prm")],
+        [B("🔔 Напоминания и автопокупка", "ca:rem")],
         [B("🤖 Магазины клиентов", "ca:hb:0", style="success")],
         [B(f"👥 Пользователи ({users})", "ca:ul:0", style="primary"), B("📢 Рассылка", "ca:bc")],
         [B(f"📣 Обязательная подписка ({len(db.channels())})", "ca:subs")],
@@ -484,6 +495,8 @@ VALUES = {
                               "<code>https://bot-123-heliys.bothost.tech</code>). Без него мини-приложение не откроется."),
     "app_accent": ("🎨 Цвет мини-приложения", "Отправьте цвет в формате <code>#8b5cf6</code>. "
                                              "<code>-</code> — стандартный."),
+    "ref_percent": ("🤝 Процент рефералу", "Сколько % от каждой оплаты друга получает пригласивший (на баланс "
+                                          "конструктора). Например <code>15</code>. <code>0</code> — выключить программу."),
 }
 
 
@@ -498,10 +511,161 @@ async def cb_value(call: CallbackQuery):
            "curator": html.escape(core.curator() or "—"),
            "stars_price": f"{core.stars_price()} ⭐", "usdt_rate": db.get_setting("crypto_usdt_rate") or "авто",
            "app_accent": core.get("app_accent") or "#8b5cf6",
+           "ref_percent": _pct(core.ref_percent()),
            "site": html.escape(appcfg.public_url() or "не задан")}[key]
     await ask(call, "value", f"<b>{name}</b>\n\nСейчас: {cur}\n\n{prompt}",
-              cancel="ca:app" if key == "app_accent" else "ca:pay" if key in ("stars_price", "usdt_rate") else "ca:home",
+              cancel="ca:app" if key == "app_accent" else "ca:pay" if key in ("stars_price", "usdt_rate")
+              else "ca:ref" if key == "ref_percent" else "ca:home",
               key=key)
+
+
+# ======================= рефералы =======================
+async def ref_view(target, prefix=""):
+    p = core.ref_percent()
+    invited = db.val("SELECT COUNT(*) FROM ctor_users WHERE referrer_id IS NOT NULL") or 0
+    earned = db.val("SELECT COALESCE(SUM(ref_earned),0) FROM ctor_users") or 0
+    top = db.q("SELECT u.*, (SELECT COUNT(*) FROM ctor_users r WHERE r.referrer_id=u.id) AS n FROM ctor_users u "
+               "WHERE u.id IN (SELECT referrer_id FROM ctor_users WHERE referrer_id IS NOT NULL) "
+               "ORDER BY u.ref_earned DESC, n DESC LIMIT 10")
+    lines = "\n".join(f"{i}. {core.user_link(u)} — {u['n']} чел., {money(u['ref_earned'])}"
+                      for i, u in enumerate(top, 1)) or "пока никого"
+    text = (f"{prefix}🤝 <b>Реферальная программа</b>\n\nСтатус: <b>{'✅ ' + _pct(p) + ' с каждой оплаты' if p else '⏸ выкл'}</b>"
+            f"\n\n<blockquote>👥 Пришли по ссылкам: <b>{invited}</b>\n💰 Начислено рефералам: <b>{money(earned)}</b>"
+            f"</blockquote>\n\n🏆 <b>Топ пригласивших</b>\n{lines}\n\n"
+            "<i>Как работает: у каждого пользователя своя ссылка (кнопка «🤝 Пригласить друга»). Когда друг "
+            "оплачивает бота (создание или покупку пробного), пригласившему приходит процент на баланс конструктора. "
+            "Балансом он оплачивает своих ботов. Вывода денег нет.</i>")
+    await render(target, text, kb([
+        [B("✏️ Изменить процент", "ca:v:ref_percent", style="primary")],
+        back(),
+    ]))
+
+
+@router.callback_query(F.data == "ca:ref")
+async def cb_ref(call: CallbackQuery):
+    await ref_view(call)
+    await call.answer()
+
+
+# ======================= промокоды =======================
+async def promos_view(target, prefix=""):
+    rows_db = db.q("SELECT * FROM ctor_promos ORDER BY created DESC LIMIT 30")
+    lines = []
+    for p in rows_db:
+        state = ""
+        if p["until"] and p["until"] <= db.now():
+            state = " · ⌛ истёк"
+        elif p["max_uses"] and p["used"] >= p["max_uses"]:
+            state = " · ⌛ закончился"
+        lim = f"{p['used']}/{p['max_uses']}" if p["max_uses"] else f"{p['used']}/∞"
+        until = f" · до {p['until'][8:10]}.{p['until'][5:7]}" if p["until"] else ""
+        lines.append(f"<code>{html.escape(p['code'])}</code> — {core.promo_label(p)} · {lim}{until}{state}")
+    btn_on = core.flag_on("promo_btn")
+    text = (f"{prefix}🎟 <b>Промокоды конструктора</b>\n\n" + ("\n".join(lines) if lines else "Пока нет промокодов.")
+            + "\n\n<i>Каждый промокод — один раз на человека. Скидка действует на создание бота и на покупку "
+              "пробного навсегда. «+дни» продлевают пробный (или добавляются при запуске на пробном).</i>")
+    rows = [[B("➕ Создать промокод", "ca:prma", style="success")]]
+    rows += [[B(f"🗑 {p['code']}", f"ca:prmd:{p['code']}")] for p in rows_db[:15]]
+    rows.append([B(f"Кнопка «🎟 Промокод» у пользователей: {'✅ вкл' if btn_on else '⏸ выкл'}", "ca:prmbtn")])
+    rows.append(back())
+    await render(target, text, kb(rows))
+
+
+@router.callback_query(F.data == "ca:prm")
+async def cb_promos(call: CallbackQuery):
+    await promos_view(call)
+    await call.answer()
+
+
+@router.callback_query(F.data == "ca:prmbtn")
+async def cb_promo_btn(call: CallbackQuery):
+    core.put("promo_btn", "1" if not core.flag_on("promo_btn") else "0")
+    await promos_view(call)
+    await call.answer("Готово")
+
+
+@router.callback_query(F.data.startswith("ca:prmd:"))
+async def cb_promo_del(call: CallbackQuery):
+    code = call.data[8:]
+    db.x("DELETE FROM ctor_promos WHERE code=?", (code,))
+    db.x("UPDATE ctor_users SET promo=NULL WHERE promo=?", (code,))
+    await promos_view(call, f"🗑 Промокод {html.escape(code)} удалён.\n\n")
+    await call.answer()
+
+
+@router.callback_query(F.data == "ca:prma")
+async def cb_promo_add(call: CallbackQuery):
+    await ask(call, "promo_add", (
+        "➕ <b>Новый промокод</b>\n\nОтправьте одной строкой: <code>КОД СКИДКА [ЛИМИТ] [ДНЕЙ]</code>\n\n<blockquote>"
+        "<code>SALE20 20%</code> — скидка 20%, без лимита\n"
+        "<code>MINUS100 100₽ 50</code> — скидка 100₽, 50 активаций\n"
+        "<code>FREE 100% 5 3</code> — бесплатно, 5 активаций, действует 3 дня\n"
+        "<code>WEEK +7д</code> — +7 дней пробного периода</blockquote>\n\n"
+        "КОД — латиница и цифры (3–24 символа). ЛИМИТ <code>0</code> — без лимита."), cancel="ca:prm")
+
+
+def parse_promo(txt):
+    """'КОД 20% 50 7' -> (code, kind, value, max_uses, days) или текст ошибки."""
+    parts = txt.replace(",", ".").split()
+    if len(parts) < 2 or len(parts) > 4:
+        return "Нужно: <code>КОД СКИДКА [ЛИМИТ] [ДНЕЙ]</code>, например <code>SALE20 20% 50</code>"
+    code, val = parts[0].upper(), parts[1].lower()
+    if not core.PROMO_RE.match(code):
+        return "Код — латиница, цифры, _ или - (3–24 символа)."
+    try:
+        if val.endswith("%"):
+            kind, value = "percent", float(val[:-1])
+            if not 0 < value <= 100:
+                return "Процент — от 1 до 100."
+        elif val.startswith("+") and val.rstrip("днейьяd").lstrip("+").replace(".", "").isdigit():
+            kind, value = "days", float(int(float(val.rstrip("днейьяd").lstrip("+"))))
+            if not 0 < value <= 365:
+                return "Дней — от 1 до 365."
+        else:
+            kind, value = "rub", float(val.rstrip("₽руб.r"))
+            if value <= 0:
+                return "Скидка должна быть больше нуля."
+        max_uses = int(parts[2]) if len(parts) > 2 else 0
+        days = int(parts[3]) if len(parts) > 3 else 0
+    except ValueError:
+        return "Не понял числа. Пример: <code>SALE20 20% 50 7</code>"
+    if max_uses < 0 or days < 0:
+        return "Лимит и дни не могут быть отрицательными."
+    return code, kind, value, max_uses, days
+
+
+# ======================= напоминания и автопокупка =======================
+async def remind_view(target, prefix=""):
+    rem, ab = core.flag_on("remind"), core.flag_on("autobuy")
+    abn = db.val("SELECT COUNT(*) FROM ctor_payments WHERE receipt='balance:auto' AND status='paid'") or 0
+    text = (f"{prefix}🔔 <b>Напоминания и автопокупка</b>\n\n<blockquote>"
+            f"🔔 Напоминания о пробном: <b>{_onoff(rem)}</b>\n"
+            f"🔁 Автопокупка с баланса: <b>{_onoff(ab)}</b> · сработала {abn} раз</blockquote>\n\n"
+            "<b>Напоминания</b> владельцам пробных магазинов: за 3 дня (если пробный длиннее 4 дней), за сутки, "
+            "за 3 часа, в момент выключения и через 1, 3 и 7 дней после.\n\n"
+            "<b>Автопокупка</b>: если на балансе владельца хватает денег, за час до конца пробного бот покупается "
+            "навсегда сам. Если бот уже выключен — покупается сразу после пополнения баланса (чек принят или вы "
+            "начислили вручную). Каждый владелец может выключить её у себя в «🧾 Мои боты».\n\n"
+            "Тексты — в «📝 Тексты бота» (Напоминание…, Автопокупка…).")
+    await render(target, text, kb([
+        [B(f"🔔 Напоминания: {_onoff(rem)}", "ca:remt:remind"), B(f"🔁 Автопокупка: {_onoff(ab)}", "ca:remt:autobuy")],
+        back(),
+    ]))
+
+
+@router.callback_query(F.data == "ca:rem")
+async def cb_remind(call: CallbackQuery):
+    await remind_view(call)
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("ca:remt:"))
+async def cb_remind_toggle(call: CallbackQuery):
+    key = call.data[8:]
+    if key in ("remind", "autobuy"):
+        core.put(key, "1" if not core.flag_on(key) else "0")
+    await remind_view(call)
+    await call.answer("Готово")
 
 
 # ======================= магазины клиентов =======================
@@ -1004,6 +1168,7 @@ async def cb_topup_receipt(call: CallbackQuery):
                         kb([[cbot.B("create", "c:new")], [cbot.B("menu", "c:menu")]]))
         await mark_admin_msg(call, f"✅ Зачислено ({who})")
         await call.answer("Зачислено")
+        await cbot.autobuy_user(t["user_id"])  # хватает на пробного бота — купить сразу
     else:
         core.set_topup(tid, status="rejected")
         await cbot.send(t["user_id"], core.tx("topup_no", amount=money(t["amount"])),
@@ -1101,6 +1266,22 @@ async def on_input(m: Message, bot: Bot):
         return await app_view(m, "✅ Фон сохранён.\n\n")
     if act == "value":
         return await _on_value(m, w, txt, finish)
+    if act == "promo_add":
+        res = parse_promo(txt)
+        if isinstance(res, str):
+            return await m.answer(res)
+        code, kind, value, max_uses, days = res
+        if core.promo(code):
+            return await m.answer("Такой код уже есть — придумайте другой:")
+        until = None
+        if days:
+            from datetime import datetime, timedelta
+            until = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+        db.x("INSERT INTO ctor_promos(code, kind, value, max_uses, used, until, created) VALUES (?,?,?,?,0,?,?)",
+             (code, kind, value, max_uses, until, db.now()))
+        finish()
+        return await promos_view(m, f"✅ Промокод <code>{html.escape(code)}</code> создан: "
+                                    f"{core.promo_label(core.promo(code))}.\n\n")
     if act == "ubal":
         parts = txt.replace(",", ".").split()
         try:
@@ -1116,6 +1297,7 @@ async def on_input(m: Message, bot: Bot):
         from ctor import bot as cbot
         if amount > 0:
             await cbot.send(target, core.tx("topup_ok", amount=money(amount), balance=money(u["balance"])))
+            await cbot.autobuy_user(target)
         return await users_view(m, f"✅ Баланс {core.user_link(u)}: {money(u['balance'])}\n\n")
     if act == "ufind":
         q = txt.strip().lstrip("@")
@@ -1137,6 +1319,7 @@ async def on_input(m: Message, bot: Bot):
         from ctor import bot as cbot
         if amount > 0:
             await cbot.send(uid2, core.tx("topup_ok", amount=money(amount), balance=money(u["balance"])))
+            await cbot.autobuy_user(uid2)
         return await user_card(m, uid2, f"✅ Баланс: {money(u['balance'])}\n\n")
     if act == "umsg":
         from ctor import bot as cbot
@@ -1199,6 +1382,16 @@ async def _on_value(m, w, txt, finish):
         if not txt.isdigit() or int(txt) > 365:
             return await m.answer("Нужно целое число от 0 до 365:")
         core.put(key, int(txt))
+    elif key == "ref_percent":
+        try:
+            v = round(float(txt.replace(",", ".").replace("%", "")), 2)
+        except ValueError:
+            return await m.answer("Нужно число от 0 до 100:")
+        if not 0 <= v <= 100:
+            return await m.answer("Нужно число от 0 до 100:")
+        core.put(key, v)
+        finish()
+        return await ref_view(m, "✅ Сохранено.\n\n")
     elif key == "sbp":
         core.put(key, None if txt == "-" else m.html_text)
     elif key in ("support_url", "curator"):
