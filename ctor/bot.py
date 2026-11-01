@@ -60,7 +60,40 @@ class Mw(BaseMiddleware):
                 return await event.answer(tx("banned"))
             return None
         data["cu"] = row
+        if u.id not in config.ADMINS and not (isinstance(event, CallbackQuery) and event.data == "c:subchk"):
+            if isinstance(event, Message) and event.chat.type != "private":
+                return await handler(event, data)
+            need = await sub_missing(data["bot"], u.id)
+            if need:
+                return await sub_prompt(event, need)
         return await handler(event, data)
+
+
+# ======================= обязательная подписка =======================
+async def sub_missing(b, uid):
+    """Каналы, на которые пользователь ещё не подписан (настраиваются в /admin → 📣 Обязательная подписка)."""
+    import subscription
+    try:
+        return await subscription.missing(b, uid)
+    except Exception as e:
+        log.warning("конструктор: проверка подписки не удалась: %s", e)
+        return []
+
+
+def sub_text_kb(need):
+    lines = "\n".join(f"• {html.escape(c['title'] or str(c['chat_id']))}" for c in need)
+    rows = [[raw_btn(f"📣 {c['title'] or 'Канал'}"[:60], url=c["url"])] for c in need if c["url"]]
+    rows.append([B("sub_check", "c:subchk")])
+    return tx("sub_prompt", channels=lines), kb(rows)
+
+
+async def sub_prompt(event, need):
+    text, markup = sub_text_kb(need)
+    if isinstance(event, CallbackQuery):
+        await event.answer()
+        return await out(event, text, markup)
+    if isinstance(event, Message):
+        return await event.answer(text, reply_markup=markup)
 
 
 def running():
@@ -275,6 +308,17 @@ async def cb_menu(call: CallbackQuery):
         core.set_step(uid, None)
     await show_menu(call, uid)
     await call.answer()
+
+
+@router.callback_query(F.data == "c:subchk")
+async def cb_sub_check(call: CallbackQuery, bot: Bot):
+    import subscription
+    subscription.forget(call.from_user.id)
+    need = await sub_missing(bot, call.from_user.id)
+    if need:
+        return await call.answer(core.plain(tx("sub_not_yet")), show_alert=True)
+    await call.answer("Спасибо! 🙌")
+    await show_menu(call, call.from_user.id)
 
 
 @router.callback_query(F.data == "c:sup")

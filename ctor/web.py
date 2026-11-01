@@ -33,7 +33,7 @@ def jerr(code, msg, status=400):
     return web.json_response({"ok": False, "error": code, "message": msg}, status=status)
 
 
-def _auth(request):
+async def _auth(request):
     from ctor import bot as cbot
     if not cbot.running():
         return None, jerr("off", "Конструктор сейчас выключен", 503)
@@ -43,6 +43,15 @@ def _auth(request):
     u = core.touch_tg(tg)
     if u["banned"] and tg["id"] not in __import__("config").ADMINS:
         return None, jerr("banned", core.plain(core.tx("banned")), 403)
+    if tg["id"] not in __import__("config").ADMINS:  # обязательная подписка (/admin → 📣)
+        need = await cbot.sub_missing(cbot.bot(), tg["id"])
+        if need:
+            mw = _mw()
+            return None, web.json_response({
+                "ok": False, "error": "sub", "message": core.plain(core.tx("app_sub_title")),
+                "sub": {"title": mw.sanitize(core.tx("app_sub_title")), "text": mw.sanitize(core.tx("app_sub_text")),
+                        "check": mw.sanitize(core.tx("app_sub_check")),
+                        "channels": [{"title": c["title"], "url": c["url"]} for c in need]}}, status=403)
     return (tg, u), None
 
 
@@ -104,7 +113,7 @@ def _bots(uid):
 
 async def boot(request):
     from ctor import bot as cbot
-    ok, err = _auth(request)
+    ok, err = await _auth(request)
     if err:
         return err
     tg, u = ok
@@ -154,7 +163,7 @@ async def _body(request):
 async def save_draft(request):
     """Шаги 1–4 из мини-приложения. Дальше бот пишет в чат следующий шаг."""
     from ctor import bot as cbot
-    ok, err = _auth(request)
+    ok, err = await _auth(request)
     if err:
         return err
     tg, _ = ok
@@ -190,7 +199,7 @@ async def save_draft(request):
 
 async def topup(request):
     from ctor import bot as cbot
-    ok, err = _auth(request)
+    ok, err = await _auth(request)
     if err:
         return err
     tg, _ = ok
@@ -207,7 +216,7 @@ async def topup(request):
 
 async def buy(request):
     from ctor import bot as cbot
-    ok, err = _auth(request)
+    ok, err = await _auth(request)
     if err:
         return err
     tg, _ = ok

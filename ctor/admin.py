@@ -102,6 +102,7 @@ async def home(target, prefix=""):
         [B("💵 Мин. пополнение", "ca:v:topup_min"), B("🌐 Адрес сайта", "ca:v:site")],
         [B("🤖 Магазины клиентов", "ca:hb:0", style="success")],
         [B("👥 Пользователи и баланс", "ca:usr"), B("📢 Рассылка", "ca:bc")],
+        [B(f"📣 Обязательная подписка ({len(db.channels())})", "ca:subs")],
         [B("🏠 Меню конструктора", "c:menu")],
     ]))
 
@@ -633,6 +634,88 @@ async def cb_user_ban(call: CallbackQuery):
                             "разблокирую.", cancel="ca:usr")
 
 
+# ======================= обязательная подписка =======================
+async def subs_view(target, prefix=""):
+    import subscription
+    chans = db.channels()
+    on = subscription.enabled()
+    text = (f"{prefix}📣 <b>Обязательная подписка</b>\n\nСтатус: <b>{'✅ включена' if on else '⏸ выключена'}</b>\n"
+            "Пока пользователь не подписан на все каналы и чаты из списка, конструктор показывает ему только "
+            "кнопки подписки (и в боте, и в мини-приложении). Вас, владельца, это не касается.\n\n")
+    text += ("<b>Каналы и чаты:</b>\n" + "\n".join(f"• {html.escape(c['title'] or '')} — {html.escape(c['url'] or '')}"
+                                                   for c in chans)) if chans else "<i>Список пуст — подписка не нужна.</i>"
+    rows = [[B(f"🗑 {c['title'] or c['chat_id']}"[:60], f"ca:subdel:{c['id']}", style="danger")] for c in chans]
+    rows.append([B("➕ Добавить канал / чат", "ca:subadd", style="success")])
+    rows.append([B("⏸ Выключить" if on else "▶️ Включить", "ca:subtog")])
+    rows.append(back())
+    await render(target, text, kb(rows))
+
+
+@router.callback_query(F.data == "ca:subs")
+async def cb_subs(call: CallbackQuery):
+    await subs_view(call)
+    await call.answer()
+
+
+@router.callback_query(F.data == "ca:subtog")
+async def cb_subs_toggle(call: CallbackQuery):
+    import subscription
+    db.set_setting("sub_on", "0" if subscription.enabled() else "1")
+    await subs_view(call)
+    await call.answer("Готово")
+
+
+@router.callback_query(F.data.startswith("ca:subdel:"))
+async def cb_subs_del(call: CallbackQuery):
+    db.delete_channel(int(call.data.split(":")[2]))
+    await subs_view(call, "🗑 Удалено.\n\n")
+    await call.answer()
+
+
+@router.callback_query(F.data == "ca:subadd")
+async def cb_subs_add(call: CallbackQuery):
+    await ask(call, "subadd", "➕ <b>Добавить канал или чат</b>\n\n1. Сделайте бота-конструктора "
+                              "<b>администратором</b> канала / чата.\n2. Отправьте сюда:\n"
+                              "• <code>@username</code> или ссылку <code>https://t.me/username</code>\n"
+                              "• или ID (<code>-100...</code>)\n• или просто <b>перешлите пост</b> из канала\n\n"
+                              "Для приватного канала бот сам создаст ссылку-приглашение (можно указать свою: "
+                              "<code>-1001234567890 | https://t.me/+AbC...</code>).", cancel="ca:subs")
+
+
+async def _sub_add(m: Message, txt, bot: Bot):
+    import subscription
+    from handlers.admin import parse_chat_ref
+    fo = m.forward_origin
+    if fo is not None and fo.type == "channel":
+        ref, link = fo.chat.id, ""
+    elif fo is not None and fo.type == "chat" and getattr(fo, "sender_chat", None):
+        ref, link = fo.sender_chat.id, ""
+    elif txt:
+        ref, link = parse_chat_ref(txt)
+    else:
+        return False, "Отправьте @username, ссылку, ID или перешлите пост:"
+    try:
+        chat = await bot.get_chat(ref)
+    except Exception as e:
+        return False, f"❌ Не нашёл такой канал или чат: {html.escape(str(e))}\n\nПроверьте и отправьте ещё раз:"
+    try:
+        me = await bot.get_chat_member(chat.id, bot.id)
+        if me.status not in ("administrator", "creator"):
+            raise ValueError
+    except Exception:
+        return False, "❌ Бот-конструктор не администратор там. Добавьте его админом и отправьте снова:"
+    url = link or (f"https://t.me/{chat.username}" if chat.username else "")
+    if not url:
+        try:
+            url = (await bot.create_chat_invite_link(chat.id)).invite_link
+        except Exception:
+            return False, ("❌ Это приватный канал, а бот не может создать приглашение. Дайте ему право "
+                           "«Приглашать пользователей» или пришлите: <code>ID | https://t.me/+...</code>")
+    db.add_channel(chat.id, (chat.title or str(chat.id))[:60], url)
+    subscription.forget(m.from_user.id)
+    return True, ""
+
+
 # ======================= рассылка =======================
 @router.callback_query(F.data == "ca:bc")
 async def cb_broadcast(call: CallbackQuery):
@@ -723,6 +806,12 @@ async def on_input(m: Message, bot: Bot):
         core.put("t:" + w["key"], body)
         finish()
         return await text_view(m, w["key"], "✅ Сохранено.\n\n")
+    if act == "subadd":
+        ok, msg = await _sub_add(m, txt, bot)
+        if not ok:
+            return await m.answer(msg)
+        finish()
+        return await subs_view(m, "✅ Добавлено.\n\n")
     if act == "appbg":
         media = media_of(m)
         if not media or media[0] == "animation":
