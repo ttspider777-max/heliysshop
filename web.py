@@ -408,7 +408,7 @@ def user_block(u, tg, lang):
         "id": u["id"], "username": u["username"], "first_name": u["first_name"], "photo_url": (tg or {}).get("photo_url"),
         "lang": lang, "balance": round(u["balance"], 2), "deposited": round(u["deposited"] or 0, 2),
         "status": cur, "next": nxt, "pct": pct, "left": left,
-        "disc": appcfg.disc_of(cur), "next_disc": appcfg.disc_of(nxt) if nxt else None,
+        "disc": appcfg.status_discount(u), "next_disc": appcfg.disc_of(nxt) if nxt and appcfg.statuses_on() else None,
         "orders_30d": db.val(f"SELECT COUNT(*) FROM orders WHERE user_id=? AND {paid} "
                              "AND created >= datetime('now','localtime','-30 days')", (u["id"],)),
         "spent": round(db.val(f"SELECT COALESCE(SUM(price),0) FROM orders WHERE user_id=? AND {paid}", (u["id"],)) or 0, 2),
@@ -459,6 +459,7 @@ async def api_boot(request):
         "wall": media_url(db.get_setting("app_wall"), "photo"),
         "icons": appcfg.icons(), "texts": {k: _txt(k, lang) for k in APP_TEXTS},
         "statuses": appcfg.statuses(),
+        "statuses_on": appcfg.statuses_on(),
         "bonus": {"on": appcfg.bonus_on(), "amount": appcfg.bonus_amount()},
         "topup": {"min": appcfg.topup_min(), "amounts": appcfg.topup_amounts()},
         "star_rate": float(db.get_setting("star_rate", config.STAR_RATE) or config.STAR_RATE),

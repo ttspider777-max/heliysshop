@@ -4,6 +4,7 @@
 перезапуски и обновления кода. Значения по умолчанию — здесь.
 """
 import json
+import re
 from datetime import datetime, timedelta
 
 import config
@@ -163,8 +164,42 @@ def disc_of(s):
 
 
 def status_discount(u):
-    """Постоянная скидка покупателя по его статусу, %."""
-    return disc_of(user_status(u)[0]) if u else 0
+    """Постоянная скидка покупателя по его статусу, % (0, если статусы выключены)."""
+    return disc_of(user_status(u)[0]) if u and statuses_on() else 0
+
+
+# ---------- выключение статусов (админка → 🏅 Статусы) ----------
+def statuses_on():
+    return db.get_setting("status_on", "1") == "1"
+
+
+# Метка вместо {status} / {progress}, когда статусы выключены: строки с ней убираются из текста
+# (так работает и с текстами, которые владелец магазина переписал сам).
+STATUS_MARK = "⁣"
+
+
+def status_value(u):
+    return status_label(u) if statuses_on() else STATUS_MARK
+
+
+def strip_status(text):
+    """Убирает строки со статусом. HTML-теги из убранной строки (например </blockquote>) сохраняются."""
+    if STATUS_MARK not in (text or ""):
+        return text
+    out = []
+    for line in text.split("\n"):
+        if STATUS_MARK not in line:
+            out.append(line)
+            continue
+        tags = "".join(re.findall(r"</?[a-zA-Z][^>]*>", line))
+        prev = None
+        while prev != tags:  # пустые пары вроде <b></b>
+            prev, tags = tags, re.sub(r"<([a-zA-Z-]+)(?:\s[^>]*)?></\1>", "", tags)
+        if tags and out:
+            out[-1] += tags
+        elif tags:
+            out.append(tags)
+    return "\n".join(out)
 
 
 # ---------- ежедневный бонус ----------

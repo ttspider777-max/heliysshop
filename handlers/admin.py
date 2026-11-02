@@ -1620,6 +1620,9 @@ async def cb_settings(call: CallbackQuery):
     for key, (title, default, _) in SETTINGS.items():
         lines.append(f"{title}: {db.get_setting(key, default)}")
         rows.append([B(title, f"a:set:{key}")])
+    import appcfg
+    lines.append(f"🏅 Статусы покупателей: {'вкл' if appcfg.statuses_on() else 'выкл'}")
+    rows.append([B("🏅 Статусы: вкл / выкл и список", "a:st")])
     rows.append(back())
     await render(call, "\n".join(lines), kb(rows))
     await call.answer()

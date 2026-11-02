@@ -783,7 +783,7 @@ function heroHtml() {
       <div class="hero-label">${T("app_balance")}</div>
       <div class="balance-row"><div class="balance">${Number(whole).toLocaleString("ru-RU")}${frac ? "," + frac : ""}<small>₽</small></div>
         <button class="plus" data-act="topup" aria-label="${esc(plain(T("app_topup")))}">${svg("plus")}</button></div>
-      <button class="status-pill" data-act="profile"><span class="av">${av}</span>${st.emoji_id && u.photo_url ? pe(st.emoji_id, st.emoji) : ""}${esc(st.name || "")}</button>
+      ${sh.statuses_on === false ? "" : `<button class="status-pill" data-act="profile"><span class="av">${av}</span>${st.emoji_id && u.photo_url ? pe(st.emoji_id, st.emoji) : ""}${esc(st.name || "")}</button>`}
     </div>
     ${isAdmin() ? `<label class="hero-edit">${svg("camera", "sm")}${L("Фото", "Photo")}<input type="file" accept="image/*,video/*" data-upload="app_bg" data-id="0" data-direct="1" aria-label="photo"></label>` : ""}</div>`;
 }
@@ -1060,13 +1060,13 @@ function renderProfile() {
       <button class="card row" data-act="ref"><span class="ri">${ic("refs")}</span><span class="rt"><b>${T("app_ref_title", { pct: u.ref.pct })}</b><span>${T("app_ref_sub", { n: u.ref.invited, sum: money(u.ref.earned) })}</span></span><span class="chev">${svg("right")}</span></button>
     </div>
 
-    <div class="sec">${T("app_status")}</div>
+    ${sh.statuses_on === false ? "" : `<div class="sec">${T("app_status")}</div>
     <div class="card stcard">
       <div class="st-head"><div class="st-ico">${stIcon(st)}</div><div><b>${esc(st.name || "")}</b><span>${u.disc ? T("app_status_disc", { pct: fmtPct(u.disc) }) : T("app_status_nodisc")}</span></div></div>
       <div class="bar"><i style="width:${u.pct}%"></i></div><div class="muted" style="font-size:13px;margin-top:8px">${next}</div>
       <div class="st-tiles">${sh.statuses.map((s, i) => `<div class="st-tile ${i === curIdx ? "cur" : i < curIdx ? "done" : ""}"><span class="em">${stIcon(s)}</span><b>${esc(s.name)}</b><small>${+s.disc ? "−" + fmtPct(s.disc) + "%" : "0%"}</small></div>`).join("")}</div>
       <div class="muted" style="font-size:12.5px;margin-top:10px">${T("app_statuses_hint")}</div>
-    </div>
+    </div>`}
 
     <div class="sec">${T("app_colors")}</div>
     <div class="card" style="padding:16px">

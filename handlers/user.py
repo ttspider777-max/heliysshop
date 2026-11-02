@@ -29,7 +29,8 @@ async def show_main(target, lang, uid, state: FSMContext = None):
     u = db.get_user(uid)
     text = t("welcome", lang, name=html.escape((u["first_name"] if u else None) or "friend"),
              balance=money(u["balance"] if u else 0), orders=db.count_user_orders(uid),
-             status=html.escape(appcfg.status_label(u)))
+             status=html.escape(appcfg.status_value(u)))
+    text = appcfg.strip_status(text)  # статусы выключены — без строки «Статус»
     if db.get_setting("verified") == "1":  # значок от бота-конструктора: магазин набрал N продаж
         text = t("verified_badge", lang) + "\n" + text
     media = as_media(db.get_setting("welcome_photo"), db.get_setting("welcome_media_type"))
@@ -141,14 +142,17 @@ async def cb_setlang(call: CallbackQuery, state: FSMContext):
 # ---------- профиль ----------
 def profile_text(u, lang):
     cur, nxt, pct, left = appcfg.user_status(u)
-    if nxt:
+    if not appcfg.statuses_on():
+        progress = appcfg.STATUS_MARK
+    elif nxt:
         progress = t("profile_next", lang, bar=bar(pct), pct=pct, next=html.escape(nxt["name"]), left=money(left))
     else:
         progress = t("profile_max", lang)
     uname = f"@{html.escape(u['username'])}" if u["username"] else html.escape(u["first_name"] or "—")
     text = t("profile", lang, id=u["id"], username=uname, name=html.escape(u["first_name"] or ""),
              date=fdate(u["joined"]), orders=db.count_user_orders(u["id"]), balance=money(u["balance"]),
-             status=html.escape(appcfg.status_label(u)), progress=progress, deposited=money(u["deposited"]))
+             status=html.escape(appcfg.status_value(u)), progress=progress, deposited=money(u["deposited"]))
+    text = appcfg.strip_status(text)
     if u["promo_percent"]:
         text += t("profile_promo", lang, code=html.escape(u["promo_code"]), pct=u["promo_percent"])
     return text
@@ -167,7 +171,7 @@ def profile_kb(u, lang):
         [btn("topup", lang, "topup")],
         bonus,
         [btn("my_orders", lang, "ord:p:0"), btn("fav", lang, "l:pfav:0")],
-        [btn("statuses", lang, "stl"), shop_btn(lang, "#profile")],
+        [btn("statuses", lang, "stl") if appcfg.statuses_on() else None, shop_btn(lang, "#profile")],
         [btn("back", lang, "menu")],
     ])
 
@@ -198,6 +202,8 @@ async def cb_bonus(call: CallbackQuery, lang: str):
 
 @router.callback_query(F.data == "stl")
 async def cb_statuses(call: CallbackQuery, lang: str):
+    if not appcfg.statuses_on():
+        return await call.answer()
     u = db.get_user(call.from_user.id)
     cur = appcfg.user_status(u)[0]
     lines = []

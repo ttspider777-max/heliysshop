@@ -315,16 +315,35 @@ def statuses_text():
     return "\n".join(lines)
 
 
-@router.callback_query(F.data == "a:st")
-async def cb_statuses(call: CallbackQuery):
-    await render(call, "🏅 <b>Статусы покупателей</b>\n\nСтатус зависит от суммы реальных денег, которые покупатель "
-                       "внёс в бота: пополнения баланса и оплаты по СБП / звёздами (бонусы и начисления от админа не "
-                       "считаются). Скидка статуса действует на все покупки; с промокодом не складывается — "
-                       f"берётся большая.\n\n<blockquote>{statuses_text()}</blockquote>", kb([
+async def statuses_view(target, prefix=""):
+    on = appcfg.statuses_on()
+    await render(target, f"{prefix}🏅 <b>Статусы покупателей</b> — {_onoff(on)}\n\nСтатус зависит от суммы реальных "
+                         "денег, которые покупатель внёс в бота: пополнения баланса и оплаты по СБП / звёздами (бонусы "
+                         "и начисления от админа не считаются). Скидка статуса действует на все покупки; с промокодом "
+                         "не складывается — берётся большая.\n\n"
+                         + ("" if on else "⏸ <b>Статусы выключены:</b> покупатели не видят статус в приветствии, "
+                                          "профиле и мини-приложении, скидки статусов не действуют.\n\n")
+                         + f"<blockquote>{statuses_text()}</blockquote>", kb([
+        [B("⏸ Выключить статусы" if on else "▶️ Включить статусы", "a:stt",
+           style="danger" if on else "success")],
         [B("✏️ Изменить список", "a:ste", style="primary")],
         [B("♻️ Вернуть стандартные", "a:str")],
-        back("a:app"),
+        # в магазине без мини-приложения раздел «Мини-приложение» скрыт — назад в настройки
+        back("a:settings" if config.NO_APP else "a:app"),
     ]))
+
+
+@router.callback_query(F.data == "a:st")
+async def cb_statuses(call: CallbackQuery):
+    await statuses_view(call)
+    await call.answer()
+
+
+@router.callback_query(F.data == "a:stt")
+async def cb_statuses_toggle(call: CallbackQuery):
+    on = not appcfg.statuses_on()
+    db.set_setting("status_on", "1" if on else "0")
+    await statuses_view(call, "▶️ Статусы включены.\n\n" if on else "⏸ Статусы выключены.\n\n")
     await call.answer()
 
 
