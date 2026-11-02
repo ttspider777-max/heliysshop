@@ -167,6 +167,21 @@ input, textarea { font: inherit; color: inherit; }
 .sty { display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: var(--r-md); background: var(--surface); border: 1.5px solid var(--line); font-weight: 700; font-size: 14px; text-align: left; transition: border-color .15s; }
 .sty .si { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-2); flex: none; font-size: 18px; }
 .sty.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.modes { display: grid; gap: 10px; }
+.mode { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: var(--r-md); background: var(--surface); border: 1.5px solid var(--line); text-align: left; transition: border-color .15s, transform .12s; }
+.mode:active { transform: scale(.98); }
+.mode .mi { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--surface-2); flex: none; font-size: 22px; }
+.mode .mt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.mode .mt b { font-size: 15px; }
+.mode .mt small { color: var(--muted); font-size: 13px; line-height: 1.35; }
+.mode i { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--line); display: grid; place-items: center; flex: none; color: #fff; }
+.mode.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.mode.on i { background: var(--accent); border-color: var(--accent); }
+.chatpv { border-radius: var(--r-md); background: var(--surface); border: 1px solid var(--line); padding: 14px; }
+.chatpv .bubble { background: var(--surface-2); border-radius: 14px 14px 14px 4px; padding: 10px 12px; font-size: 13.5px; line-height: 1.45; max-width: 92%; overflow-wrap: anywhere; }
+.chatpv .kbd { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+.chatpv .kbd span { background: var(--surface-2); border-radius: 10px; padding: 9px 6px; text-align: center; font-size: 12.5px; font-weight: 700; }
+.chatpv .kbd .wide { grid-column: 1 / -1; background: color-mix(in srgb, var(--accent) 22%, var(--surface-2)); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .chip { padding: 8px 12px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); font-weight: 600; font-size: 13px; text-align: left; line-height: 1.35; }
 .chip:active { border-color: var(--accent); }
@@ -614,14 +629,16 @@ function renderPlan() {
 }
 
 /* ---------- мастер ---------- */
-const STEPS = 4;
 function wzState() {
   if (!S.wz) {
     const d = S.draft || {};
-    S.wz = { step: 1, color: d.color || "", hex: d.hex || "#ff3d81", style: d.style || "", title: d.title || "", desc: d.desc || "", customOpen: d.color === "custom" };
+    S.wz = { step: 1, mode: d.mode || "", color: d.color || "", hex: d.hex || "#ff3d81", style: d.style || "", title: d.title || "", desc: d.desc || "", customOpen: d.color === "custom" };
   }
   return S.wz;
 }
+/* шаги мастера: без мини-приложения цвет и стиль не нужны */
+function wzKeys() { return wzState().mode === "bot" ? ["mode", "title", "desc"] : ["mode", "color", "style", "title", "desc"]; }
+function wzKey() { const k = wzKeys(); return k[Math.min(wzState().step, k.length) - 1]; }
 function wzAccent() {
   const w = wzState();
   if (w.color === "custom") return w.hex;
@@ -636,6 +653,10 @@ function previewHtml() {
   const isBlack = w.color === "black";
   const title = esc(w.title.trim() || "Мой магазин");
   const desc = esc(w.desc.trim());
+  if (w.mode === "bot") {
+    return `<div class="preview-label">Так покупатель увидит бота</div><div class="chatpv"><div class="bubble"><b>✨ ${title}</b>${desc ? `<br>${desc}` : ""}<br><br>👋 Привет! Выбирай товар 👇</div>
+      <div class="kbd"><span class="wide">🛍 Каталог</span><span>👤 Профиль</span><span>🧾 Заказы</span><span>💬 Поддержка</span><span>🎟 Промокод</span></div></div>`;
+  }
   return `<div class="preview-label">${T("app_preview")}</div><div class="preview"><div class="hero" style="--hc:${acc};--fx:${season === "halloween" ? "#ff7a1a" : acc};--pc:${acc};--pink:${inkFor(acc)};${isBlack ? "background:#050505;" : ""}">
     <div class="fx">${fxHtml(season)}</div>
     <div class="hero-top"><div class="hero-title">${title}</div>${st && st.badge ? `<span class="badge"><span class="bi">${SEASON_ICON[season] || ""}</span>${esc(st.badge)}</span>` : ""}</div>
@@ -644,18 +665,24 @@ function previewHtml() {
 }
 function stepHtml() {
   const w = wzState();
-  if (w.step === 1) {
+  const key = wzKey();
+  if (key === "mode") {
+    const card = (id, icon, t, sub) => `<button class="mode ${w.mode === id ? "on" : ""}" data-mode="${id}"><span class="mi">${icon}</span><span class="mt"><b>${T(t)}</b><small>${T(sub)}</small></span><i>${w.mode === id ? svg("check", "sm") : ""}</i></button>`;
+    return `<div class="wz-title">${T("app_mode")}</div><div class="wz-sub">${T("app_mode_sub")}</div><div class="modes">
+      ${card("app", "📱", "app_mode_app", "app_mode_app_sub")}${card("bot", "💬", "app_mode_bot", "app_mode_bot_sub")}</div>`;
+  }
+  if (key === "color") {
     const sw = S.colors.map((c) => `<button class="sw ${w.color === c.id ? "on" : ""}" data-color="${c.id}" style="--c:${c.swatch};--c2:${c.id === "black" ? "#e4e4e7" : c.hex}"><i>${w.color === c.id ? svg("check", "sm") : ""}</i>${esc(c.name)}</button>`).join("");
     return `<div class="wz-title">${T("app_step1")}</div><div class="wz-sub">${T("app_step1_sub")}</div><div class="swatches">${sw}</div>
       <button class="custom-btn ${w.color === "custom" ? "on" : ""}" data-act="custom">${svg("palette", "sm")} ${T("app_custom")}</button>
       ${w.customOpen ? `<div class="card custom"><input type="color" id="colorPick" value="${esc(w.hex)}" aria-label="цвет"><input class="inp" id="hexInp" maxlength="7" value="${esc(w.hex)}" placeholder="#ff7a1a" autocomplete="off"></div>` : ""}`;
   }
-  if (w.step === 2) {
-    const st = S.styles.map((s) => `<button class="sty ${w.style === s.id ? "on" : ""}" data-style="${s.id}"><span class="si">${SEASON_ICON[s.id] || "⚪"}</span>${esc(s.name.replace(/^\S+\s/, ""))}</button>`).join("");
+  if (key === "style") {
+    const st =S.styles.map((s) => `<button class="sty ${w.style === s.id ? "on" : ""}" data-style="${s.id}"><span class="si">${SEASON_ICON[s.id] || "⚪"}</span>${esc(s.name.replace(/^\S+\s/, ""))}</button>`).join("");
     return `<div class="wz-title">${T("app_step2")}</div><div class="wz-sub">${T("app_step2_sub")}</div><div class="styles">${st}</div>`;
   }
-  if (w.step === 3) {
-    const ideas = ["Snow Shop", "Neon Store", "Digital Market", "Pixel Shop", "Premium Keys", "Night Store"];
+  if (key === "title") {
+    const ideas =["Snow Shop", "Neon Store", "Digital Market", "Pixel Shop", "Premium Keys", "Night Store"];
     return `<div class="wz-title">${T("app_step3")}</div><div class="wz-sub">${T("app_step3_sub")}</div>
       <input class="inp" id="titleInp" maxlength="40" value="${esc(w.title)}" placeholder="Например, Snow Shop" autocomplete="off">
       <div class="counter" id="titleCnt">${w.title.length}/40</div>
@@ -671,23 +698,26 @@ function stepHtml() {
 }
 function stepValid() {
   const w = wzState();
-  if (w.step === 1) return w.color === "custom" ? /^#[0-9a-f]{6}$/i.test(w.hex) : !!w.color;
-  if (w.step === 2) return !!w.style;
-  if (w.step === 3) return w.title.trim().length > 0 && w.title.trim().length <= 40;
+  const key = wzKey();
+  if (key === "mode") return !!w.mode;
+  if (key === "color") return w.color === "custom" ? /^#[0-9a-f]{6}$/i.test(w.hex) : !!w.color;
+  if (key === "style") return !!w.style;
+  if (key === "title") return w.title.trim().length > 0 && w.title.trim().length <= 40;
   return w.desc.trim().length > 0 && w.desc.trim().length <= 200;
 }
 function renderWizard() {
   const w = wzState();
   setAccent(wzAccent());
-  const prog = Array.from({ length: 7 }, (_, i) => `<i class="${i < w.step ? "on" : ""}"></i>`).join("");
-  $("#s-wizard").innerHTML = `<div class="wz-head"><button class="back" data-act="wzback" aria-label="${esc(plain(T("app_back")))}">${svg("left")}</button><div class="progress">${prog}</div><span class="wz-step">${w.step} / 7</span></div>
+  const total = wzKeys().length + 3; // + приветствие, поддержка, токен в чате
+  const prog = Array.from({ length: total }, (_, i) => `<i class="${i < w.step ? "on" : ""}"></i>`).join("");
+  $("#s-wizard").innerHTML = `<div class="wz-head"><button class="back" data-act="wzback" aria-label="${esc(plain(T("app_back")))}">${svg("left")}</button><div class="progress" style="grid-template-columns:repeat(${total},1fr)">${prog}</div><span class="wz-step">${w.step} / ${total}</span></div>
     <div id="pv">${previewHtml()}</div><div id="stepBody">${stepHtml()}</div>`;
   renderBar();
   bindWizardInputs();
 }
 function renderBar() {
   const w = wzState();
-  const last = w.step === STEPS;
+  const last = w.step === wzKeys().length;
   $("#wzbar .in").innerHTML = `<button class="btn" id="wzNext" data-act="${last ? "wzfinish" : "wznext"}" ${stepValid() ? "" : "disabled"}>${last ? svg("send", "sm") + " " + T("app_finish") : T("app_next") + " " + svg("right", "sm")}</button>`;
 }
 function refreshPreview() { $("#pv").innerHTML = previewHtml(); renderBar(); }
@@ -705,10 +735,10 @@ async function finishWizard(btn) {
   const w = wzState();
   btn.disabled = true;
   try {
-    await api("draft", { color: w.color, hex: w.hex, style: w.style, title: w.title.trim(), desc: w.desc.trim(), plan: S.plan || "buy" });
+    await api("draft", { mode: w.mode, color: w.color, hex: w.hex, style: w.style, title: w.title.trim(), desc: w.desc.trim(), plan: S.plan || "buy" });
     haptic("ok");
     $("#wzbar").hidden = true;
-    $("#s-wizard").innerHTML = `<div class="wz-done"><div class="di">${svg("check")}</div><h2>Витрина готова!</h2><p>${T("app_finish_hint")}</p>
+    $("#s-wizard").innerHTML = `<div class="wz-done"><div class="di">${svg("check")}</div><h2>${w.mode === "bot" ? "Основа готова!" : "Витрина готова!"}</h2><p>${T("app_finish_hint")}</p>
       <div class="steps-left"><div><span>🧩</span>Готовый набор товаров (или пустой магазин)</div><div><span>5</span>Приветствие с премиум-эмодзи и фото</div><div><span>6</span>Контакт поддержки</div><div><span>7</span>Токен бота из @BotFather</div></div>
       <button class="btn block" data-act="close">${svg("chat", "sm")} Перейти в чат</button></div>`;
     S.wz = null;
@@ -718,7 +748,7 @@ async function finishWizard(btn) {
 
 /* ---------- события ---------- */
 document.addEventListener("click", async (ev) => {
-  const el = ev.target.closest("[data-plan],[data-act],[data-tab],[data-color],[data-style],[data-title],[data-desc],[data-amount],[data-buy],[data-open]");
+  const el = ev.target.closest("[data-plan],[data-act],[data-tab],[data-mode],[data-color],[data-style],[data-title],[data-desc],[data-amount],[data-buy],[data-open]");
   if (!el) return;
   const d = el.dataset;
   if (d.plan) { S.plan = d.plan; S.wz = null; haptic("medium"); return go("wizard"); }
@@ -726,6 +756,7 @@ document.addEventListener("click", async (ev) => {
   if (d.open) return openLink(`https://t.me/${d.open}`);
   if (d.buy) return buyBot(+d.buy, el);
   const w = S.tab === "wizard" ? wzState() : null;
+  if (d.mode && w) { w.mode = d.mode; haptic(); $("#stepBody").innerHTML = stepHtml(); setAccent(wzAccent()); return refreshPreview(); }
   if (d.color) { w.color = d.color; w.customOpen = false; haptic(); $("#stepBody").innerHTML = stepHtml(); bindWizardInputs(); setAccent(wzAccent()); return refreshPreview(); }
   if (d.style) { w.style = d.style; haptic(); $("#stepBody").innerHTML = stepHtml(); return refreshPreview(); }
   if (d.title) { w.title = d.title; haptic(); $("#stepBody").innerHTML = stepHtml(); bindWizardInputs(); return refreshPreview(); }

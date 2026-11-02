@@ -80,9 +80,9 @@ class Mw(BaseMiddleware):
             return None
         if row["banned"] and u.id not in config.ADMINS:
             if isinstance(event, CallbackQuery):
-                return await event.answer(core.plain(tx("banned")), show_alert=True)
+                return await event.answer(core.plain(core.ban_text(row))[:190], show_alert=True)
             if isinstance(event, Message) and event.chat.type == "private":
-                return await event.answer(tx("banned"))
+                return await event.answer(core.ban_text(row))
             return None
         data["cu"] = row
         if u.id not in config.ADMINS and not (isinstance(event, CallbackQuery) and event.data == "c:subchk"):
@@ -476,6 +476,13 @@ def back_row():
 
 
 async def prompt(target, uid, step, d):
+    if step == "mode":
+        rows = [[B("mode_app", "c:mode:app")], [B("mode_bot", "c:mode:bot")]]
+        url = app_url()
+        if url:
+            rows.append([B("app", web_app=url + "#create")])
+        rows.append(back_row())
+        return await out(target, tx("step_mode"), kb(rows))
     if step == "color":
         items = list(core.COLORS.items())
         rows = [[raw_btn(f"{core.COLOR_EMOJI[k]} {v[0]}", f"c:col:{k}") for k, v in items[i:i + 2]]
@@ -542,9 +549,11 @@ def summary_text(uid, d):
     if d.get("template") and d["template"] != "empty":
         cats, items = core.template_counts(d["template"])
         tpl += f" · {cats} кат., {items} тов."
-    return (tx("summary") + "\n\n<blockquote>"
+    look = ("📱 Вид: <b>кнопки в чате (без мини-приложения)</b>\n" if core.no_app(d) else
+            "📱 Вид: <b>с мини-приложением</b>\n"
             f"🎨 Цвет: <b>{html.escape(core.color_label(d))}</b>\n"
-            f"🎭 Стиль: <b>{html.escape(core.style_label(d))}</b>\n"
+            f"🎭 Стиль: <b>{html.escape(core.style_label(d))}</b>\n")
+    return (tx("summary") + "\n\n<blockquote>" + look +
             f"🏷 Заголовок: <b>{html.escape(d.get('title') or '—')}</b>\n"
             f"📝 Описание: {html.escape(d.get('desc') or '—')}\n"
             f"🧩 Товары: {html.escape(tpl)}\n"
@@ -616,6 +625,17 @@ async def cb_idea(call: CallbackQuery):
     await call.answer()
 
 
+@router.callback_query(F.data.startswith("c:mode:"))
+async def cb_mode(call: CallbackQuery):
+    mode = call.data[7:]
+    if mode not in ("app", "bot"):
+        return await call.answer()
+    d, _ = core.draft(call.from_user.id)
+    d["mode"] = mode
+    await advance(call, call.from_user.id, d)
+    await call.answer()
+
+
 @router.callback_query(F.data.startswith("c:tpl:"))
 async def cb_template(call: CallbackQuery):
     key = call.data[6:]
@@ -648,14 +668,16 @@ async def cb_support_pick(call: CallbackQuery):
 
 
 # ---------- ✏️ изменить ----------
-EDIT_FIELDS = (("color", "🎨 Цвет"), ("style", "🎭 Стиль"), ("title", "🏷 Заголовок"), ("desc", "📝 Описание"),
+EDIT_FIELDS = (("mode", "📱 Вид бота"), ("color", "🎨 Цвет"), ("style", "🎭 Стиль"), ("title", "🏷 Заголовок"), ("desc", "📝 Описание"),
                ("template", "🧩 Набор товаров"), ("welcome", "👋 Приветствие"), ("support", "💬 Поддержка"),
                ("token", "🤖 Бот (токен)"))
 
 
 @router.callback_query(F.data == "c:edit")
 async def cb_edit(call: CallbackQuery):
-    rows = [[raw_btn(t, f"c:e:{k}") for k, t in EDIT_FIELDS[i:i + 2]] for i in range(0, len(EDIT_FIELDS), 2)]
+    d, _ = core.draft(call.from_user.id)
+    fields = [f for f in EDIT_FIELDS if not (core.no_app(d) and f[0] in core.APP_ONLY)]
+    rows = [[raw_btn(t, f"c:e:{k}") for k, t in fields[i:i + 2]] for i in range(0, len(fields), 2)]
     rows.append([B("restart", "c:reset")])
     rows.append([B("back", "c:sum")])
     await out(call, tx("edit_menu"), kb(rows))
@@ -1380,6 +1402,7 @@ async def do_create(uid, d, trial, price=0, method="", stars=0, tariff="pro"):
                                + ("" if trial else f"\n💰 {money(price)} — нужно вернуть или помочь вручную"))
     bid = db.create_hosted(uid, 0 if trial else price)
     fields = dict(status="running", source="ctor", cfg=json.dumps(_public_cfg(d), ensure_ascii=False),
+                  no_app=1 if core.no_app(d) else 0,
                   token=d["token"], tg_id=d["tg_id"], username=d["username"], shop_name=d.get("title") or d["username"],
                   started=db.now())
     if trial:

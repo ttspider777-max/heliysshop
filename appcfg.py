@@ -240,6 +240,9 @@ def public_url():
 
 
 def app_url():
-    """Адрес мини-приложения или None, если сайт бота не настроен (Telegram требует https)."""
+    """Адрес мини-приложения или None, если сайт бота не настроен (Telegram требует https)
+    или магазин из конструктора создан без мини-приложения."""
+    if config.NO_APP:
+        return None
     base = public_url()
     return f"{base}/app" if base.startswith("https://") else None

@@ -63,6 +63,8 @@ if CHILD:
     MAIN_BOT_ID = int(c.get("main_bot_id") or 0)
     # магазин создан через бот-конструктор: кнопка «🤖 Создать своего бота» ведёт в конструктор
     CTOR_URL = str(c.get("ctor_url") or "")
+    # покупатель конструктора выбрал бота без мини-приложения: каталог и покупка кнопками в чате
+    NO_APP = bool(c.get("no_app"))
     # защита: бот клиента работает только со своим токеном и своей базой
     _tok_id = BOT_TOKEN.split(":", 1)[0]
     if not _tok_id.isdigit() or int(_tok_id) != EXPECT_BOT_ID or int(_tok_id) == MAIN_BOT_ID:
@@ -89,6 +91,7 @@ else:
     PUBLIC_URL = os.getenv("PUBLIC_URL") or os.getenv("WEBAPP_URL") or ""  # например https://bot-xxx.bothost.tech
     EXPECT_BOT_ID = MAIN_BOT_ID = 0
     CTOR_URL = ""
+    NO_APP = False
 
 # Бот-конструктор — отдельный бот на BotHost из этого же репозитория. Режим включается сам, если бот запущен
 # с токеном конструктора (BotHost подставляет токен в BOT_TOKEN), или переменной BOT_MODE=constructor.

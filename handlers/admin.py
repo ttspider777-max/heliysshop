@@ -60,7 +60,9 @@ def admin_kb():
         [B("📊 Статистика", "a:stats"), B("👥 Пользователи", "a:usersm")],
         [B(f"💬 Поддержка{tk}", "a:tk:open", style="primary" if s["tickets"] else None)],
         [B("🛍 Товары и склад", "a:shopm", style="success")],
-        [B("🎨 Мини-приложение", "a:app", style="primary"), B("✏️ Оформление бота", "a:design")],
+        # магазин без мини-приложения (выбран в конструкторе) — его настройки не показываем
+        ([] if config.NO_APP else [B("🎨 Мини-приложение", "a:app", style="primary")]) +
+        [B("✏️ Оформление бота", "a:design")],
         [B("📢 Рассылка", "a:bc"), B("🎟 Промокоды", "a:promos")],
         [B("⚙️ Настройки", "a:settings"), B("📣 Подписка", "a:subs")],
         [B("💎 Криптооплата", "a:cry")],

@@ -6,6 +6,7 @@
 """
 import asyncio
 import html
+import logging
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -21,6 +22,7 @@ from handlers.admin import mark_admin_msg
 from services import broadcast
 from ui import fix_url, kb, media_of, raw_btn, render, split_custom_emoji
 
+log = logging.getLogger(__name__)
 router = Router()
 router.message.filter(F.from_user.id.in_(config.ADMINS))
 router.callback_query.filter(F.from_user.id.in_(config.ADMINS))
@@ -129,6 +131,8 @@ async def home(target, prefix=""):
          B(f"🎟 Промокоды ({db.val('SELECT COUNT(*) FROM ctor_promos') or 0})", "ca:prm")],
         [B("🔔 Напоминания и автопокупка", "ca:rem")],
         [B("🤖 Магазины клиентов", "ca:hb:0", style="success")],
+        [B("🤖 «Создать своего бота» в магазинах: скрыта — показать" if core.get("mkbot_off") == "1"
+           else "🙈 Скрыть «Создать своего бота» во всех магазинах", "ca:mkall")],
         [B(f"👥 Пользователи ({users})", "ca:ul:0", style="primary"), B("📢 Рассылка", "ca:bc")],
         [B(f"📣 Обязательная подписка ({len(db.channels())})", "ca:subs")],
         [B("🛠 Техработы: ВКЛ — выключить" if core.get("maint") == "1" else "🛠 Включить техработы", "ca:maint",
@@ -712,10 +716,14 @@ async def bot_view(target, bid, prefix=""):
     u = core.user(b["user_id"])
     text = (f"{prefix}🤖 <b>Магазин #{b['id']}</b> @{html.escape(b['username'] or '—')}\n\n"
             f"👤 Владелец: {core.user_link(u) if u else b['user_id']}\n"
+            f"🚦 Владелец: {core.ban_label(u)}\n"
             f"📍 Статус: {b['status']}{' (процесс работает)' if hosting.is_alive(b['id']) else ''}\n"
             + (f"🎁 Пробный до {builder.fmt_until(b['trial_until'])}\n" if b["trial_until"]
                else f"♾ Навсегда · оплачено {money(b['price'])}\n")
-            + f"📅 Создан: {b['created']}")
+            + f"📅 Создан: {b['created']}\n"
+            + ("📱 Вид: <b>кнопки в чате (без мини-приложения)</b>\n" if b["no_app"] else "📱 Вид: <b>с мини-приложением</b>\n")
+            + ("🤖 «Создать своего бота»: <b>скрыта</b>" + (" (для всех магазинов)" if core.get("mkbot_off") == "1" else "")
+               if core.mkbot_hidden(b) else "🤖 «Создать своего бота»: <b>показана</b>"))
     rows = []
     if b["status"] == "running":
         rows.append([B("⏸ Остановить", f"ca:hs:{bid}", style="danger"), B("🔄 Перезапустить", f"ca:hr:{bid}")])
@@ -724,6 +732,13 @@ async def bot_view(target, bid, prefix=""):
     if b["trial_until"] and b["token"]:
         rows.append([B(f"🎁 +{core.trial_days() or 3} дн.", f"ca:hx:{bid}"),
                      B("♾ Навсегда", f"ca:hp:{bid}", style="success")])
+    rows.append([B("📱 Включить мини-приложение" if b["no_app"] else "💬 Выключить мини-приложение", f"ca:hm:{bid}")])
+    if u and u["id"] not in config.ADMINS:
+        rows.append([B("✅ Разбанить владельца", f"ca:hbu:{bid}", style="success") if u["banned"] else
+                     B("🚫 Забанить владельца: незаконный бот", f"ca:hbi:{bid}", style="danger")])
+    if core.get("mkbot_off") != "1":
+        rows.append([B("🤖 Показать «Создать своего бота»" if b["no_mkbot"] else "🙈 Скрыть «Создать своего бота»",
+                       f"ca:hk:{bid}")])
     if b["username"]:
         rows.append([B(f"🔗 @{b['username']} (/admin)", url=f"https://t.me/{b['username']}", style="primary")])
     rows.append(back("ca:hb:0", "◀️ К списку"))
@@ -755,6 +770,74 @@ async def cb_bot_run(call: CallbackQuery):
     db.set_hosted(bid, status="running")
     ok = await (hosting.restart(bid) if hosting.is_alive(bid) else hosting.launch(bid))
     await bot_view(call, bid, "✅ Работает.\n\n" if ok else "⚠️ Не запустился — лог в основном боте.\n\n")
+
+
+async def apply_cfg(bid):
+    """Новые настройки магазина вступают в силу после перезапуска его процесса."""
+    b = db.hosted(bid)
+    if b and b["status"] == "running" and hosting.is_alive(bid):
+        return await hosting.restart(bid)
+    return True
+
+
+@router.callback_query(F.data.startswith("ca:hm:"))
+async def cb_bot_app(call: CallbackQuery):
+    bid = int(call.data[6:])
+    b = db.hosted(bid)
+    if not b:
+        return await call.answer()
+    await call.answer("Применяю…")
+    db.set_hosted(bid, no_app=0 if b["no_app"] else 1)
+    ok = await apply_cfg(bid)
+    note = "📱 Мини-приложение включено." if b["no_app"] else "💬 Теперь магазин работает кнопками в чате."
+    await bot_view(call, bid, note + ("" if ok else " ⚠️ Бот не перезапустился — проверь лог.") + "\n\n")
+
+
+@router.callback_query(F.data.startswith("ca:hk:"))
+async def cb_bot_mkbot(call: CallbackQuery):
+    bid = int(call.data[6:])
+    b = db.hosted(bid)
+    if not b:
+        return await call.answer()
+    await call.answer("Применяю…")
+    db.set_hosted(bid, no_mkbot=0 if b["no_mkbot"] else 1)
+    ok = await apply_cfg(bid)
+    note = "🤖 Кнопка показана." if b["no_mkbot"] else "🙈 Кнопка скрыта."
+    await bot_view(call, bid, note + ("" if ok else " ⚠️ Бот не перезапустился — проверь лог.") + "\n\n")
+
+
+@router.callback_query(F.data.startswith("ca:hbi:") | F.data.startswith("ca:hbu:"))
+async def cb_bot_owner_ban(call: CallbackQuery):
+    """Из карточки магазина: бан владельца за незаконный бот (магазины останавливаются) или разбан."""
+    bid = int(call.data.rsplit(":", 1)[1])
+    b = db.hosted(bid)
+    if not b or b["user_id"] in config.ADMINS:
+        return await call.answer()
+    await call.answer()
+    if call.data.startswith("ca:hbi:"):
+        n = await ban_user(b["user_id"], "illegal")
+        note = f"🚫 Владелец забанен за незаконный бот. Магазинов остановлено: {n}."
+    else:
+        n = await unban_user(b["user_id"])
+        note = "✅ Владелец разбанен." + (f" Магазинов снова запущено: {n}." if n else "")
+    await bot_view(call, bid, note + "\n\n")
+
+
+@router.callback_query(F.data == "ca:mkall")
+async def cb_mkbot_all(call: CallbackQuery):
+    """«Создать своего бота» во всех магазинах клиентов: скрыть или вернуть (кроме скрытых по одному)."""
+    off = core.get("mkbot_off") != "1"
+    core.put("mkbot_off", "1" if off else "0")
+    await call.answer("Применяю ко всем магазинам…")
+    bots = db.q("SELECT id FROM hosted_bots WHERE source='ctor' AND status='running'")
+    for r in bots:
+        try:
+            await apply_cfg(r["id"])
+        except Exception:
+            log.exception("конструктор: не перезапустил магазин #%s", r["id"])
+    await home(call, ("🙈 Кнопка «Создать своего бота» скрыта во всех магазинах." if off
+                      else "🤖 Кнопка «Создать своего бота» снова показана в магазинах.")
+               + f" Перезапущено магазинов: {len(bots)}.\n\n")
 
 
 @router.callback_query(F.data.startswith("ca:hx:"))
@@ -800,7 +883,8 @@ def _user_row(u):
                   "AND status NOT IN ('canceled','deleted')", (u["id"],)) or 0
     name = (u["first_name"] or "—")[:14]
     uname = f" @{u['username']}" if u["username"] else ""
-    return (f"{'⛔' if u['banned'] else '👤'} {name}{uname}"[:34] + f" · 🤖{bots}"
+    icon = ("🚫" if u["ban_reason"] == "illegal" else "⛔") if u["banned"] else "👤"
+    return (f"{icon} {name}{uname}"[:34] + f" · 🤖{bots}"
             + (f" · {money(u['balance'])}" if (u["balance"] or 0) else ""))
 
 
@@ -808,7 +892,7 @@ async def users_view(target, prefix="", page=0, flt="all"):
     """Все, кто запускал конструктор: новые сверху, по 8 на страницу. flt: all / bots / banned / money."""
     where = {"all": "1=1",
              "bots": "id IN (SELECT user_id FROM hosted_bots WHERE tg_id IS NOT NULL AND status NOT IN ('canceled','deleted'))",
-             "banned": "banned=1", "money": "balance > 0"}[flt]
+             "banned": "banned=1", "illegal": "banned=1 AND ban_reason='illegal'", "money": "balance > 0"}[flt]
     total = db.val(f"SELECT COUNT(*) FROM ctor_users WHERE {where}") or 0
     pages = max((total + PER_PAGE - 1) // PER_PAGE, 1)
     page = min(max(page, 0), pages - 1)
@@ -818,9 +902,12 @@ async def users_view(target, prefix="", page=0, flt="all"):
     with_bots = db.val("SELECT COUNT(DISTINCT user_id) FROM hosted_bots WHERE tg_id IS NOT NULL "
                        "AND status NOT IN ('canceled','deleted')") or 0
     banned = db.val("SELECT COUNT(*) FROM ctor_users WHERE banned=1") or 0
-    names = {"all": "все", "bots": "создали бота", "banned": "в бане", "money": "с балансом"}
+    illegal = db.val("SELECT COUNT(*) FROM ctor_users WHERE banned=1 AND ban_reason='illegal'") or 0
+    names = {"all": "все", "bots": "создали бота", "banned": "в бане", "illegal": "в бане за незаконный бот",
+             "money": "с балансом"}
     text = (f"{prefix}👥 <b>Пользователи конструктора</b>\n\n<blockquote>Всего: <b>{users}</b> (+{today} сегодня)\n"
-            f"🤖 Создали бота: <b>{with_bots}</b> · ⛔ в бане: <b>{banned}</b></blockquote>\n\n"
+            f"🤖 Создали бота: <b>{with_bots}</b> · ⛔ в бане: <b>{banned}</b>"
+            f" (🚫 за незаконный бот: <b>{illegal}</b>)</blockquote>\n\n"
             f"Показаны: <b>{names[flt]}</b> ({total}) · стр. {page + 1}/{pages}\nНажмите на человека — откроется карточка.")
     rows = [[B(_user_row(u), f"ca:u:{u['id']}")] for u in rows_db]
     nav = []
@@ -834,6 +921,7 @@ async def users_view(target, prefix="", page=0, flt="all"):
         rows.append(nav)
     rows.append([B(("• " if flt == k else "") + t, f"ca:ul:0:{k}") for k, t in
                  (("all", "Все"), ("bots", "С ботом"), ("banned", "Бан"), ("money", "Баланс"))])
+    rows.append([B(("• " if flt == "illegal" else "") + f"🚫 Незаконные боты ({illegal})", "ca:ul:0:illegal")])
     rows.append([B("🔎 Найти по ID / @username", "ca:ufind", style="primary")])
     rows.append(back())
     await render(target, text, kb(rows))
@@ -849,7 +937,7 @@ async def cb_users(call: CallbackQuery):
 async def cb_users_page(call: CallbackQuery):
     parts = call.data.split(":")
     page = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
-    flt = parts[3] if len(parts) > 3 and parts[3] in ("all", "bots", "banned", "money") else "all"
+    flt = parts[3] if len(parts) > 3 and parts[3] in ("all", "bots", "banned", "illegal", "money") else "all"
     await users_view(call, page=page, flt=flt)
     await call.answer()
 
@@ -883,10 +971,11 @@ async def user_card(target, uid, prefix=""):
             + (f" · 🔎 на проверке: {pend}" if pend else "") + "\n"
             f"🎁 Пробный: {'использован' if db.trial_used(uid) else 'не брал'}\n"
             f"🛠 Сейчас: {('в мастере, шаг «' + step + '»') if step else ('черновик есть' if d else '—')}\n"
-            f"🚦 Статус: {'⛔ <b>в бане</b>' if u['banned'] else '✅ активен'}</blockquote>\n\n"
+            f"🚦 Статус: {core.ban_label(u)}</blockquote>\n\n"
             f"🤖 <b>Боты ({len(bots)}):</b>\n" + ("\n".join(lines) if lines else "<i>ещё не создал</i>"))
     rows = [
-        [B("✅ Разбанить" if u["banned"] else "⛔ Забанить", f"ca:ub:{uid}", style="success" if u["banned"] else "danger")],
+        [B("✅ Разбанить", f"ca:ub:{uid}", style="success")] if u["banned"] else
+        [B("⛔ Забанить", f"ca:ub:{uid}", style="danger"), B("🚫 Бан: незаконный бот", f"ca:ubi:{uid}", style="danger")],
         [B("💰 Изменить баланс", f"ca:ubm:{uid}"), B("✉️ Написать", f"ca:um:{uid}")],
     ]
     for b in bots[:6]:
@@ -902,17 +991,65 @@ async def cb_user_card(call: CallbackQuery):
     await call.answer()
 
 
-@router.callback_query(F.data.startswith("ca:ub:"))
+async def ban_user(uid, reason=None):
+    """Бан. За незаконный бот (reason='illegal') ещё и останавливает все его магазины и пишет ему почему.
+    Возвращает, сколько магазинов остановлено."""
+    from ctor import bot as cbot
+    db.x("UPDATE ctor_users SET banned=1, ban_reason=? WHERE id=?", (reason, uid))
+    if reason != "illegal":
+        return 0
+    stopped = 0
+    for b in db.q("SELECT * FROM hosted_bots WHERE user_id=? AND status='running'", (uid,)):
+        db.set_hosted(b["id"], status="stopped", ban_stopped=1)
+        try:
+            await hosting.stop(b["id"])
+        except Exception:
+            log.exception("бан: не остановил магазин #%s", b["id"])
+        stopped += 1
+    try:
+        await cbot.send(uid, core.tx("banned_illegal"))
+    except Exception:
+        pass
+    return stopped
+
+
+async def unban_user(uid):
+    """Разбан: снова пускает в конструктор и запускает магазины, остановленные из-за бана."""
+    db.x("UPDATE ctor_users SET banned=0, ban_reason=NULL WHERE id=?", (uid,))
+    started = 0
+    for b in db.q("SELECT * FROM hosted_bots WHERE user_id=? AND ban_stopped=1", (uid,)):
+        db.set_hosted(b["id"], ban_stopped=0)
+        if b["status"] == "stopped" and b["token"]:
+            db.set_hosted(b["id"], status="running")
+            try:
+                if await hosting.launch(b["id"]):
+                    started += 1
+            except Exception:
+                log.exception("разбан: не запустил магазин #%s", b["id"])
+    return started
+
+
+@router.callback_query(F.data.startswith("ca:ub:") | F.data.startswith("ca:ubi:"))
 async def cb_user_ban(call: CallbackQuery):
-    uid = int(call.data[6:])
+    """ca:ub:<id> — обычный бан / разбан, ca:ubi:<id> — бан за незаконный бот."""
+    illegal = call.data.startswith("ca:ubi:")
+    uid = int(call.data.rsplit(":", 1)[1])
     u = core.user(uid)
     if not u:
         return await call.answer()
     if uid in config.ADMINS:
         return await call.answer("Владельца забанить нельзя 🙂", show_alert=True)
-    db.x("UPDATE ctor_users SET banned=? WHERE id=?", (0 if u["banned"] else 1, uid))
-    await user_card(call, uid, "✅ Разбанен.\n\n" if u["banned"] else "⛔ Забанен.\n\n")
     await call.answer()
+    if u["banned"]:
+        n = await unban_user(uid)
+        note = "✅ Разбанен." + (f" Магазинов снова запущено: {n}." if n else "")
+    elif illegal:
+        n = await ban_user(uid, "illegal")
+        note = "🚫 Забанен за незаконный бот." + (f" Магазинов остановлено: {n}." if n else "")
+    else:
+        await ban_user(uid)
+        note = "⛔ Забанен."
+    await user_card(call, uid, note + "\n\n")
 
 
 @router.callback_query(F.data.startswith("ca:ubm:"))
@@ -1346,12 +1483,16 @@ async def on_input(m: Message, bot: Bot):
         if not u:
             return await m.answer("Не найден. Ещё раз:")
         finish()
-        if act == "uban":
-            db.x("UPDATE ctor_users SET banned=? WHERE id=?", (0 if u["banned"] else 1, u["id"]))
-            u = core.user(u["id"])
+        if u["id"] in config.ADMINS:
+            return await users_view(m, "Владельца забанить нельзя 🙂\n\n")
+        if u["banned"]:
+            await unban_user(u["id"])
+        else:
+            await ban_user(u["id"])
+        u = core.user(u["id"])
         bots = db.q("SELECT * FROM hosted_bots WHERE user_id=? AND status NOT IN ('canceled','deleted')", (u["id"],))
         return await users_view(m, f"👤 {core.user_link(u)}\n💰 Баланс: {money(u['balance'])}\n"
-                                   f"📅 С {u['joined']}{' · ⛔ заблокирован' if u['banned'] else ''}\n🤖 Ботов: "
+                                   f"📅 С {u['joined']} · {core.ban_label(u)}\n🤖 Ботов: "
                                    + (", ".join(f"@{html.escape(b['username'] or '?')}" for b in bots) or "нет")
                                    + "\n\n")
     if act == "bc":

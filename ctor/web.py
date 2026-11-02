@@ -48,7 +48,7 @@ async def _auth(request):
     if core.get("maint") == "1" and tg["id"] not in __import__("config").ADMINS:
         return None, jerr("maint", core.plain(core.tx("maint")), 503)
     if u["banned"] and tg["id"] not in __import__("config").ADMINS:
-        return None, jerr("banned", core.plain(core.tx("banned")), 403)
+        return None, jerr("banned", core.plain(core.ban_text(u)), 403)
     if tg["id"] not in __import__("config").ADMINS:  # обязательная подписка (/admin → 📣)
         need = await cbot.sub_missing(cbot.bot(), tg["id"])
         if need:
@@ -175,7 +175,7 @@ async def boot(request):
                  "photo_url": tg.get("photo_url"), "balance": round(u["balance"] or 0, 2),
                  "is_admin": uid in __import__("config").ADMINS},
         "bots": _bots(uid),
-        "draft": {k: d.get(k) for k in ("color", "hex", "style", "title", "desc", "plan")},
+        "draft": {k: d.get(k) for k in ("mode", "color", "hex", "style", "title", "desc", "plan")},
         "ideas": core.desc_ideas(d.get("title")),
         "topup": {"min": core.topup_min(), "amounts": [a for a in (100, 300, 500, 1000, 2000) if a >= core.topup_min()]},
     }
@@ -203,20 +203,27 @@ async def save_draft(request):
     style = str(body.get("style") or "")
     title = core.clean_title(str(body.get("title") or ""))
     desc = core.clean_desc(str(body.get("desc") or ""))
-    if color == "custom":
+    # «без мини-приложения»: магазин работает кнопками в чате, цвет и стиль не нужны
+    mode = "bot" if str(body.get("mode") or "") == "bot" else "app"
+    if mode == "app" and color == "custom":
         hx = core.norm_hex(str(body.get("hex") or ""))
         if not hx:
             return jerr("hex", "Цвет нужен в формате #ff7a1a")
-    elif color not in core.COLORS:
+    elif mode == "app" and color not in core.COLORS:
         return jerr("color", "Выберите цвет")
-    if style not in appcfg.SEASONS:
+    if mode == "app" and style not in appcfg.SEASONS:
         return jerr("style", "Выберите стиль")
     if not title:
         return jerr("title", "Напишите заголовок")
     if not desc:
         return jerr("desc", "Напишите описание")
     d, _ = core.draft(uid)
-    d.update(color=color, style=style, title=title, desc=desc)
+    d.update(mode=mode, title=title, desc=desc)
+    if mode == "app":
+        d.update(color=color, style=style)
+    else:
+        for k in ("color", "style", "hex"):
+            d.pop(k, None)
     plan = str(body.get("plan") or "")
     if plan == "trial" and cbot.trial_ok(uid, d):
         d["plan"] = "trial"
@@ -224,9 +231,9 @@ async def save_draft(request):
         d["plan"] = plan
     else:
         d["plan"] = "buy"  # тариф выберет в чате
-    if color == "custom":
+    if mode == "app" and color == "custom":
         d["hex"] = hx
-    else:
+    elif mode == "app":
         d.pop("hex", None)
     step = core.next_step(d)
     core.save_draft(uid, d, step)

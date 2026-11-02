@@ -110,7 +110,11 @@ def _write_cfg(b):
     }
     if "source" in b.keys() and b["source"] == "ctor":  # магазин из бота-конструктора
         from ctor import bot as ctor_bot
-        cfg["ctor_url"] = ctor_bot.link()
+        from ctor import core as ctor_core
+        # «🤖 Создать своего бота» ведёт в конструктор, если владелец конструктора её не скрыл
+        if not ctor_core.mkbot_hidden(b):
+            cfg["ctor_url"] = ctor_bot.link()
+        cfg["no_app"] = bool(b["no_app"]) if "no_app" in b.keys() else False
     path = cfg_path(b["id"])
     fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
