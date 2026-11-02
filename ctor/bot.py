@@ -1925,6 +1925,9 @@ async def remind_loop():
             await growth.push_tick()
             if n % 30 == 0:
                 await growth.verified_tick()
+            if n % 5 == 0 and _bot:  # чаты: убрать тех, у кого кончилась подписка, вернуть продливших
+                from ctor import groups
+                await groups.kick_tick(_bot)
         except asyncio.CancelledError:
             raise
         except Exception:

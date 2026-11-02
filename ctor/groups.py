@@ -205,6 +205,77 @@ async def on_group_text(m: Message, bot: Bot):
     await m.reply(answer_text(e), reply_markup=kb(rows) if rows else None)
 
 
+# ======================= доступ к чатам по подписке =======================
+# Закончился срок (пробный, Start, Medium…) и других действующих магазинов нет → бот удаляет человека из чатов,
+# где сам админ, и пишет ему в личку. Продлил → бот снимает блокировку и присылает новую ссылку-приглашение.
+# Магазины «навсегда» (Pro, VIP) не кончаются, их владельцев бот не трогает.
+def has_access(uid):
+    """Есть ли у человека хотя бы один действующий магазин из конструктора (бессрочный или с неистёкшим сроком)."""
+    return bool(db.val("SELECT 1 FROM hosted_bots WHERE user_id=? AND source='ctor' AND token IS NOT NULL "
+                       "AND status IN ('running','stopped','failed') "
+                       "AND (trial_until IS NULL OR trial_until > ?) LIMIT 1", (uid, db.now())))
+
+
+def kicked_chats(uid):
+    return [r["chat_id"] for r in db.q("SELECT chat_id FROM ctor_kicks WHERE user_id=? AND restored IS NULL", (uid,))]
+
+
+async def kick_tick(bot: Bot):
+    """Раз в несколько минут (ctor.bot.remind_loop): удаляет из чатов тех, у кого кончилась подписка,
+    и возвращает тех, кто продлил. -> (удалено, возвращено)."""
+    kicked = restored = 0
+    groups = active_groups()
+    if core.flag_on("kick_expired") and groups:
+        rows = db.q("SELECT DISTINCT user_id FROM hosted_bots WHERE source='ctor' AND status='expired'")
+        for r in rows:
+            uid = r["user_id"]
+            if uid in config.ADMINS or has_access(uid):
+                continue
+            done = set(kicked_chats(uid))
+            got = []
+            for g in groups:
+                if g["chat_id"] in done:
+                    continue
+                try:
+                    mem = await bot.get_chat_member(g["chat_id"], uid)
+                    if mem.status not in ("member", "restricted"):  # не в чате, или он админ / создатель
+                        continue
+                    await bot.ban_chat_member(g["chat_id"], uid)
+                except Exception as e:
+                    log.info("конструктор: не удалил %s из чата %s: %s", uid, g["chat_id"], e)
+                    continue
+                db.x("INSERT INTO ctor_kicks(user_id, chat_id, kicked_at) VALUES (?, ?, ?)", (uid, g["chat_id"], db.now()))
+                got.append(g)
+            if got:
+                kicked += len(got)
+                from ctor import bot as cbot
+                chats = "\n".join(f"• {html.escape(g['title'] or 'чат')}" for g in got)
+                await cbot.send(uid, core.tx("kicked_dm", chats=chats),
+                                kb([[cbot.B("bots", "c:bots")], [cbot.B("tariffs", "c:tariffs")]]))
+    # продлил — возвращаю (делаю это и при выключенной функции, чтобы никто не остался заблокированным)
+    for r in db.q("SELECT DISTINCT user_id FROM ctor_kicks WHERE restored IS NULL"):
+        uid = r["user_id"]
+        if not has_access(uid):
+            continue
+        links = []
+        for cid in kicked_chats(uid):
+            g = db.q1("SELECT * FROM ctor_groups WHERE chat_id=?", (cid,))
+            try:
+                await bot.unban_chat_member(cid, uid, only_if_banned=True)
+                inv = await bot.create_chat_invite_link(cid, member_limit=1, name=f"renew {uid}"[:32])
+                links.append((g["title"] if g else "чат", inv.invite_link))
+            except Exception as e:
+                log.info("конструктор: не вернул %s в чат %s: %s", uid, cid, e)
+            db.x("UPDATE ctor_kicks SET restored=? WHERE user_id=? AND chat_id=? AND restored IS NULL",
+                 (db.now(), uid, cid))
+        if links:
+            restored += len(links)
+            from ctor import bot as cbot
+            await cbot.send(uid, core.tx("restored_dm"),
+                            kb([[raw_btn(f"💬 {t or 'Чат'}"[:60], url=link)] for t, link in links]))
+    return kicked, restored
+
+
 # ======================= напоминания в чаты =======================
 def mention(u, uid):
     """Упоминание владельца в чате (без ID — его видно только в админке)."""

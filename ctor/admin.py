@@ -676,17 +676,25 @@ async def groups_view(target, prefix=""):
     gs = groups.active_groups()
     lines = "\n".join(f"• {html.escape(g['title'] or str(g['chat_id']))}" for g in gs[:20]) or "<i>пока ни одного</i>"
     me = core.get("username") or "бота"
+    kick = core.flag_on("kick_expired")
+    out_now = db.val("SELECT COUNT(DISTINCT user_id) FROM ctor_kicks WHERE restored IS NULL") or 0
     text = (f"{prefix}💬 <b>Конструктор в чатах</b>\n\n<blockquote>🤖 Автоответы на вопросы: <b>{_onoff(on)}</b>\n"
-            f"🔔 Напоминания в чаты: <b>{_onoff(core.flag_on('remind_groups'))}</b></blockquote>\n\n"
+            f"🔔 Напоминания в чаты: <b>{_onoff(core.flag_on('remind_groups'))}</b>\n"
+            f"🚪 Удалять, когда кончилась подписка: <b>{_onoff(kick)}</b> · сейчас удалено: {out_now}</blockquote>\n\n"
             f"<b>Чаты с ботом ({len(gs)}):</b>\n{lines}\n\n"
             f"<b>Как подключить:</b> добавь @{html.escape(me)} в чат и сделай его <b>админом</b> (или в @BotFather → "
             "/setprivacy → Disable) — иначе Telegram не показывает боту обычные сообщения.\n\n"
             "На вопросы вроде «как добавить товар?», «как подключить криптооплату?» бот отвечает сам — по встроенному "
             f"справочнику ({len(groups.HELP)} тем) и вопросам из ❓ FAQ (📈 Рост и продажи). На твои сообщения "
-            "не отвечает.")
+            "не отвечает.\n\n"
+            "🚪 <b>Доступ по подписке:</b> когда у владельца магазина кончается срок (пробный, Start, Medium) и других "
+            "действующих магазинов нет, бот удаляет его из чатов и пишет в личку «продли — вернёшься». После продления "
+            "сам снимает блокировку и присылает одноразовую ссылку. Владельцев «навсегда» (Pro, VIP) и админов чата "
+            "не трогает. Для этого у бота в чате должно быть право <b>блокировать участников</b>.")
     await render(target, text, kb([
         [B(f"🤖 Автоответы: {_onoff(on)}", "ca:remt:group_help")],
         [B(f"🔔 Напоминания в чаты: {_onoff(core.flag_on('remind_groups'))}", "ca:remt:remind_groups_g")],
+        [B(f"🚪 Удалять без подписки: {_onoff(kick)}", "ca:remt:kick_expired")],
         back(),
     ]))
 
@@ -706,9 +714,9 @@ async def cb_remind(call: CallbackQuery):
 @router.callback_query(F.data.startswith("ca:remt:"))
 async def cb_remind_toggle(call: CallbackQuery):
     key = call.data[8:]
-    from_groups = key in ("group_help", "remind_groups_g")  # нажато на экране «💬 Конструктор в чатах»
+    from_groups = key in ("group_help", "remind_groups_g", "kick_expired")  # экран «💬 Конструктор в чатах»
     key = {"remind_groups_g": "remind_groups"}.get(key, key)
-    if key in ("remind", "autobuy", "remind_groups", "group_help"):
+    if key in ("remind", "autobuy", "remind_groups", "group_help", "kick_expired"):
         core.put(key, "1" if not core.flag_on(key) else "0")
     await (groups_view(call) if from_groups else remind_view(call))
     await call.answer("Готово")
