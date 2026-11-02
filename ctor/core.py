@@ -76,6 +76,12 @@ CREATE TABLE IF NOT EXISTS ctor_chat (
     text TEXT,
     created TEXT
 );
+CREATE TABLE IF NOT EXISTS ctor_groups (
+    chat_id INTEGER PRIMARY KEY,  -- групповой чат, куда добавили конструктор (ctor/groups.py)
+    title TEXT,
+    added TEXT,
+    active INTEGER DEFAULT 1
+);
 """
 
 
@@ -105,6 +111,10 @@ def init():
         if col not in cols:
             db.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
     db.conn.commit()
+    # 02.11.2026: напоминания за 7, 4, 3 дня и дальше каждый день. Старое стандартное значение заменяю,
+    # своё значение админа не трогаю.
+    if re.sub(r"\s", "", get("remind_days") or "") == "7,3,2,1":
+        put("remind_days", None)
 
 
 # ======================= настройки =======================
@@ -788,6 +798,9 @@ TEXTS = {
     "promo_used": ("🎟 Промокод уже использован", "Ты уже использовал этот промокод."),
     "promo_line": ("🎟 Строка о промокоде в оплате", "🎟 Промокод <b>{code}</b>: {label} — <s>{old}</s> → <b>{price}</b>\n"),
     # ---------- напоминания и автопокупка ----------
+    "group_hello": ("💬 Приветствие в чате", (
+        "👋 Привет! Я помогаю с магазинами из @{bot}.\n\nСпрашивайте прямо здесь — например, "
+        "<i>«как добавить товар?»</i> или <i>«как подключить криптооплату?»</i> — отвечу сам.")),
     "remind_days": ("⏰ Напоминание: осталось N дней", "⏰ До конца {what} бота @{username} осталось <b>{left}</b> "
                                                       "(до {until}).\n\nПродли сейчас — от {price}, чтобы магазин "
                                                       "работал без перерыва."),

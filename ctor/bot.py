@@ -68,6 +68,12 @@ class Mw(BaseMiddleware):
                 elif isinstance(event, CallbackQuery):
                     await event.answer()
                 return None
+        if isinstance(event, Message) and event.chat.type != "private":
+            # сообщения в группах: людей из чата не записываю в пользователи конструктора (они его не запускали)
+            known = core.user(u.id)
+            if known and known["banned"] and u.id not in config.ADMINS:
+                return None
+            return await handler(event, data)
         row = core.touch_user(u)
         if isinstance(event, Message) and event.successful_payment:  # оплата уже списана — проводим всегда
             data["cu"] = row
@@ -172,12 +178,12 @@ async def start():
         log.warning("конструктор не запущен: %s", e)
         return f"Telegram не принял токен ({e.__class__.__name__})"
     if _dp is None:
-        from ctor import admin, admin2, growth
+        from ctor import admin, admin2, groups, growth
         _dp = Dispatcher()
         mw = Mw()
         _dp.message.outer_middleware(mw)
         _dp.callback_query.outer_middleware(mw)
-        _dp.include_routers(admin.router, admin2.router, growth.router, router)
+        _dp.include_routers(admin.router, admin2.router, growth.router, router, groups.router)
     _bot, _me = b, me
     core.put("username", me.username)
     try:
@@ -1815,10 +1821,14 @@ REMIND_AFTER = (7, 3, 1)  # через сколько дней после вык
 
 
 def remind_days():
-    """За сколько дней до конца напоминать (/admin → 🔔 Напоминания). По умолчанию 7, 3, 2, 1."""
-    raw = core.get("remind_days") or "7,3,2,1"
+    """За сколько дней до конца напоминать (/admin → 🔔 Напоминания).
+    По умолчанию за 7, 4 и 3 дня, а дальше каждый день (2 и 1)."""
+    raw = core.get("remind_days") or DEFAULT_REMIND
     out = sorted({int(x) for x in re.findall(r"\d+", raw) if 0 < int(x) <= 60}, reverse=True)
-    return out or [7, 3, 2, 1]
+    return out or [7, 4, 3, 2, 1]
+
+
+DEFAULT_REMIND = "7,4,3,2,1"
 
 
 def _ts(s):
@@ -1872,8 +1882,8 @@ async def remind_tick():
         key = remind_key(b, now)
         if not key:
             continue
-        if key == "d1" and b["trial_warned"]:  # «за сутки» уже написал builder.trial_loop
-            continue
+        # «за сутки» в личку уже написал builder.trial_loop — тогда только в чаты
+        private = not (key == "d1" and b["trial_warned"])
         tag = f"{key}@{b['trial_until']}"  # продлили — напоминания пойдут заново
         try:
             sent = json.loads(b["reminded"] or "[]")
@@ -1898,7 +1908,11 @@ async def remind_tick():
         else:
             n = int(key[1:])
             text = tx("remind_after", username=name, price=price, days=f"{n} {core.days_word(n)}")
-        await send(b["user_id"], text + autobuy_line(b), _buy_kb(b))
+        if private:  # в личку (дойдёт, если человек запускал бота)
+            await send(b["user_id"], text + autobuy_line(b), _buy_kb(b))
+        if _bot:  # и в чаты с конструктором, где он состоит (ctor/groups.py)
+            from ctor import groups
+            await groups.remind_in_groups(_bot, b["user_id"], text)
 
 
 async def remind_loop():

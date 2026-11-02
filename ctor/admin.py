@@ -24,7 +24,7 @@ from ui import fix_url, kb, media_of, raw_btn, render, split_custom_emoji
 
 log = logging.getLogger(__name__)
 router = Router()
-router.message.filter(F.from_user.id.in_(config.ADMINS))
+router.message.filter(F.from_user.id.in_(config.ADMINS), F.chat.type == "private")  # в группах — ctor/groups.py
 router.callback_query.filter(F.from_user.id.in_(config.ADMINS))
 
 _wait = {}  # id админа -> {"act": ..., ...}: чего ждём следующим сообщением
@@ -129,7 +129,7 @@ async def home(target, prefix=""):
         [B("👨‍💼 Куратор", "ca:v:curator")],
         [B(f"🤝 Рефералы ({_pct(core.ref_percent()) if core.ref_percent() else 'выкл'})", "ca:ref"),
          B(f"🎟 Промокоды ({db.val('SELECT COUNT(*) FROM ctor_promos') or 0})", "ca:prm")],
-        [B("🔔 Напоминания и автопокупка", "ca:rem")],
+        [B("🔔 Напоминания и автопокупка", "ca:rem"), B("💬 Чаты: автоответы", "ca:grp")],
         [B("🤖 Магазины клиентов", "ca:hb:0", style="success")],
         [B("🤖 «Создать своего бота» в магазинах: скрыта — показать" if core.get("mkbot_off") == "1"
            else "🙈 Скрыть «Создать своего бота» во всех магазинах", "ca:mkall")],
@@ -646,21 +646,55 @@ def parse_promo(txt):
 
 # ======================= напоминания и автопокупка =======================
 async def remind_view(target, prefix=""):
-    rem, ab = core.flag_on("remind"), core.flag_on("autobuy")
+    from ctor import bot as cbot
+    rem, ab, rg = core.flag_on("remind"), core.flag_on("autobuy"), core.flag_on("remind_groups")
     abn = db.val("SELECT COUNT(*) FROM ctor_payments WHERE receipt='balance:auto' AND status='paid'") or 0
+    days = ", ".join(map(str, cbot.remind_days()))
     text = (f"{prefix}🔔 <b>Напоминания и автопокупка</b>\n\n<blockquote>"
-            f"🔔 Напоминания о пробном: <b>{_onoff(rem)}</b>\n"
+            f"🔔 Напоминания о конце срока: <b>{_onoff(rem)}</b>\n"
+            f"💬 Дублировать в чаты: <b>{_onoff(rg)}</b>\n"
             f"🔁 Автопокупка с баланса: <b>{_onoff(ab)}</b> · сработала {abn} раз</blockquote>\n\n"
-            "<b>Напоминания</b> владельцам пробных магазинов: за 3 дня (если пробный длиннее 4 дней), за сутки, "
-            "за 3 часа, в момент выключения и через 1, 3 и 7 дней после.\n\n"
+            f"<b>Напоминания</b> владельцам магазинов с пробным или тарифом на срок: за <b>{days}</b> дн. до конца, "
+            "за 3 часа, в момент выключения и через 1, 3 и 7 дней после. Приходят в личку с ботом (если человек его "
+            "запускал) и — если включено — в чаты, куда добавлен конструктор и где этот человек состоит. "
+            "Дни меняются в 📈 Рост и продажи → 🔔 Дни напоминаний.\n\n"
             "<b>Автопокупка</b>: если на балансе владельца хватает денег, за час до конца пробного бот покупается "
             "навсегда сам. Если бот уже выключен — покупается сразу после пополнения баланса (чек принят или вы "
             "начислили вручную). Каждый владелец может выключить её у себя в «🧾 Мои боты».\n\n"
             "Тексты — в «📝 Тексты бота» (Напоминание…, Автопокупка…).")
     await render(target, text, kb([
         [B(f"🔔 Напоминания: {_onoff(rem)}", "ca:remt:remind"), B(f"🔁 Автопокупка: {_onoff(ab)}", "ca:remt:autobuy")],
+        [B(f"💬 Напоминать и в чатах: {_onoff(rg)}", "ca:remt:remind_groups")],
         back(),
     ]))
+
+
+# ======================= чаты: автоответы =======================
+async def groups_view(target, prefix=""):
+    from ctor import groups
+    on = core.flag_on("group_help")
+    gs = groups.active_groups()
+    lines = "\n".join(f"• {html.escape(g['title'] or str(g['chat_id']))}" for g in gs[:20]) or "<i>пока ни одного</i>"
+    me = core.get("username") or "бота"
+    text = (f"{prefix}💬 <b>Конструктор в чатах</b>\n\n<blockquote>🤖 Автоответы на вопросы: <b>{_onoff(on)}</b>\n"
+            f"🔔 Напоминания в чаты: <b>{_onoff(core.flag_on('remind_groups'))}</b></blockquote>\n\n"
+            f"<b>Чаты с ботом ({len(gs)}):</b>\n{lines}\n\n"
+            f"<b>Как подключить:</b> добавь @{html.escape(me)} в чат и сделай его <b>админом</b> (или в @BotFather → "
+            "/setprivacy → Disable) — иначе Telegram не показывает боту обычные сообщения.\n\n"
+            "На вопросы вроде «как добавить товар?», «как подключить криптооплату?» бот отвечает сам — по встроенному "
+            f"справочнику ({len(groups.HELP)} тем) и вопросам из ❓ FAQ (📈 Рост и продажи). На твои сообщения "
+            "не отвечает.")
+    await render(target, text, kb([
+        [B(f"🤖 Автоответы: {_onoff(on)}", "ca:remt:group_help")],
+        [B(f"🔔 Напоминания в чаты: {_onoff(core.flag_on('remind_groups'))}", "ca:remt:remind_groups_g")],
+        back(),
+    ]))
+
+
+@router.callback_query(F.data == "ca:grp")
+async def cb_groups(call: CallbackQuery):
+    await groups_view(call)
+    await call.answer()
 
 
 @router.callback_query(F.data == "ca:rem")
@@ -672,9 +706,11 @@ async def cb_remind(call: CallbackQuery):
 @router.callback_query(F.data.startswith("ca:remt:"))
 async def cb_remind_toggle(call: CallbackQuery):
     key = call.data[8:]
-    if key in ("remind", "autobuy"):
+    from_groups = key in ("group_help", "remind_groups_g")  # нажато на экране «💬 Конструктор в чатах»
+    key = {"remind_groups_g": "remind_groups"}.get(key, key)
+    if key in ("remind", "autobuy", "remind_groups", "group_help"):
         core.put(key, "1" if not core.flag_on(key) else "0")
-    await remind_view(call)
+    await (groups_view(call) if from_groups else remind_view(call))
     await call.answer("Готово")
 
 

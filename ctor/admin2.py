@@ -16,7 +16,7 @@ from ctor.core import money
 from ui import fix_url, kb, render
 
 router = Router()
-router.message.filter(F.from_user.id.in_(config.ADMINS))
+router.message.filter(F.from_user.id.in_(config.ADMINS), F.chat.type == "private")
 router.callback_query.filter(F.from_user.id.in_(config.ADMINS))
 
 B, back, ask, onoff = admin.B, admin.back, admin.ask, admin._onoff
@@ -149,7 +149,7 @@ VALUES = {
     "verified_need": ("🏅 Сколько продаж нужно", "Сколько выполненных заказов нужно магазину для значка "
                                                 "«✅ Проверенный магазин» (например <code>50</code>)."),
     "remind_days": ("🔔 Дни напоминаний", "За сколько дней до конца пробного / тарифа напоминать владельцу, через запятую "
-                                         "(например <code>7,3,2,1</code>). За 3 часа и после выключения — всегда."),
+                                         "(например <code>7,4,3,2,1</code> — за 7, 4, 3 дня и дальше каждый день). За 3 часа и после выключения — всегда."),
 }
 
 
