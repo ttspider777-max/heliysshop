@@ -919,35 +919,41 @@ async def mark_admin_msg(call: CallbackQuery, note):
         pass
 
 
+ORDER_LABELS = {"done": "✅ Одобрено, товар выдан", "manual": "✅ Одобрено, ждёт ручной выдачи",
+                "refunded": "⚠️ Одобрено, но товара нет — деньги на балансе"}
+
+
+def ai_rejected(kind, ref_id):
+    """Заявку отклонила нейросеть — админ может «всё же принять»."""
+    import receipts
+    c = receipts.last_check(kind, ref_id)
+    return bool(c and c["decision"] == "reject")
+
+
 @router.callback_query(F.data.startswith("a:ook:"))
 async def cb_order_ok(call: CallbackQuery, bot: Bot):
+    from services import approve_order
     oid = int(call.data.split(":")[2])
     o = db.order(oid)
-    if not o or o["status"] != "pending":
+    if o and o["status"] == "rejected" and ai_rejected("order", oid):
+        db.set_order(oid, status="pending")  # нейросеть ошиблась — админ принимает вручную
+    res = await approve_order(bot, oid)
+    if res is None:
+        o = db.order(oid)
         await mark_admin_msg(call, f"ℹ️ Уже обработан: {status(o['status'], 'ru') if o else '—'}")
         return await call.answer("Заказ уже обработан", show_alert=True)
-    db.set_order(oid, status="paid")
-    db.add_deposited(o["user_id"], o["price"])  # реальные деньги — растёт статус покупателя
-    res = await fulfill(bot, oid)
-    labels = {"done": "✅ Одобрено, товар выдан", "manual": "✅ Одобрено, ждёт ручной выдачи",
-              "refunded": "⚠️ Одобрено, но товара нет — деньги на балансе"}
-    await mark_admin_msg(call, f"{labels[res]} ({html.escape(call.from_user.first_name)})")
-    await call.answer(labels[res])
+    await mark_admin_msg(call, f"{ORDER_LABELS[res]} ({html.escape(call.from_user.first_name)})")
+    await call.answer(ORDER_LABELS[res])
 
 
 @router.callback_query(F.data.startswith("a:ono:"))
 async def cb_order_no(call: CallbackQuery, bot: Bot):
+    from services import reject_order
     oid = int(call.data.split(":")[2])
-    o = db.order(oid)
-    if not o or o["status"] != "pending":
+    if not await reject_order(bot, oid):
+        o = db.order(oid)
         await mark_admin_msg(call, f"ℹ️ Уже обработан: {status(o['status'], 'ru') if o else '—'}")
         return await call.answer("Заказ уже обработан", show_alert=True)
-    db.set_order(oid, status="rejected")
-    db.restore_promo(o)
-    u = db.get_user(o["user_id"])
-    lang = u["lang"] if u else "ru"
-    await safe_send(bot, o["user_id"], t("order_rejected", lang, oid=oid),
-                    kb([[btn("support", lang, "sup")]]))
     await mark_admin_msg(call, f"❌ Отклонено ({html.escape(call.from_user.first_name)})")
     await call.answer("Отклонено")
 
@@ -1621,11 +1627,107 @@ async def cb_settings(call: CallbackQuery):
         lines.append(f"{title}: {db.get_setting(key, default)}")
         rows.append([B(title, f"a:set:{key}")])
     import appcfg
+    import receipts
     lines.append(f"🏅 Статусы покупателей: {'вкл' if appcfg.statuses_on() else 'выкл'}")
+    lines.append(f"🤖 Проверка чеков нейросетью: {'вкл' if receipts.on() else 'выкл'}")
     rows.append([B("🏅 Статусы: вкл / выкл и список", "a:st")])
+    rows.append([B("🤖 Проверка чеков нейросетью", "a:rc", style="primary")])
     rows.append(back())
     await render(call, "\n".join(lines), kb(rows))
     await call.answer()
+
+
+# ======================= 🤖 проверка чеков нейросетью =======================
+def receipts_screen(prefix=""):
+    import receipts
+    on = receipts.on()
+    st = receipts.stats()
+    has_key = bool(receipts.api_key())
+    text = (f"{prefix}🤖 <b>Проверка чеков СБП нейросетью</b> — {'✅ включена' if on else '⏸ выключена'}\n\n"
+            "Бот сам смотрит каждый чек: сумма, получатель (сверяет с вашими реквизитами), дата, номер операции, "
+            "признаки монтажа и повторы.\n<blockquote>✅ всё сходится — заказ выдаётся / баланс зачисляется сам\n"
+            "❌ не чек, чек уже был, сумма меньше — отклоняется сам (у вас кнопка «↩️ Всё же принять»)\n"
+            "👀 есть сомнения — чек приходит вам с подсказкой</blockquote>\n"
+            f"🔑 Ключ Groq: {'есть' if has_key else '❗ не задан'}\n"
+            f"💰 Автоодобрение до: <b>{money(receipts.cap()) if receipts.cap() else 'без лимита'}</b> "
+            "(дороже — всегда на проверку)\n"
+            f"📨 Отчёты о каждом решении: <b>{'вкл' if receipts.report_on() else 'выкл'}</b>\n"
+            f"📊 Проверено: ✅ {st.get('approve', 0)} · ❌ {st.get('reject', 0)} · 👀 {st.get('review', 0)}\n\n"
+            "⚠️ Нейросеть не видит ваш банковский счёт: очень хорошую подделку она может пропустить. Поэтому держите "
+            "лимит автоодобрения разумным и проверяйте поступления в банке.\n\n"
+            "Ключ бесплатный: console.groq.com → API Keys (тот же, что для ответов в чатах).")
+    rows = [[B("🔑 Ключ Groq" + (" ✅" if has_key else ""), "a:rck", style="primary")]]
+    if has_key:
+        rows.append([B("⏸ Выключить" if receipts.get("on", "1") == "1" else "▶️ Включить", "a:rct"),
+                     B(f"💰 Лимит: {money(receipts.cap()) if receipts.cap() else '∞'}", "a:rcc")])
+        rows.append([B(f"📨 Отчёты: {'вкл' if receipts.report_on() else 'выкл'}", "a:rcr")])
+    rows.append(back("a:settings"))
+    return text, kb(rows)
+
+
+@router.callback_query(F.data == "a:rc")
+async def cb_receipts(call: CallbackQuery):
+    text, markup = receipts_screen()
+    await render(call, text, markup)
+    await call.answer()
+
+
+@router.callback_query(F.data.in_({"a:rct", "a:rcr"}))
+async def cb_receipts_toggle(call: CallbackQuery):
+    import receipts
+    key = "on" if call.data == "a:rct" else "report"
+    receipts.put(key, "0" if receipts.get(key, "1") == "1" else "1")
+    text, markup = receipts_screen()
+    await render(call, text, markup)
+    await call.answer("Готово")
+
+
+@router.callback_query(F.data == "a:rck")
+async def cb_receipts_key(call: CallbackQuery, state: FSMContext):
+    await ask(call, state, "rck", "🔑 Отправьте ключ Groq (начинается с <code>gsk_</code>). Сообщение с ключом "
+                                  "я сразу удалю. <code>-</code> — удалить ключ.", cancel="a:rc")
+
+
+@inp("rck")
+async def i_receipts_key(m, state, d, txt, bot):
+    import receipts
+    try:
+        await m.delete()
+    except Exception:
+        pass
+    val = (txt or "").strip()
+    if val == "-":
+        receipts.put("key", None)
+        await state.clear()
+        text, markup = receipts_screen("🗑 Ключ удалён — чеки снова проверяете вы.\n\n")
+        return await m.answer(text, reply_markup=markup)
+    if not re.fullmatch(r"gsk_[A-Za-z0-9]{20,}", val):
+        return await m.answer("Это не похоже на ключ Groq (начинается с gsk_). Пришлите ещё раз:")
+    err = await receipts.check_key(val)
+    if err:
+        return await m.answer(f"⚠️ Groq не принял ключ: <code>{html.escape(err)}</code>\nПришлите другой:")
+    receipts.put("key", val)
+    await state.clear()
+    text, markup = receipts_screen("✅ Ключ проверен — чеки теперь проверяет нейросеть.\n\n")
+    await m.answer(text, reply_markup=markup)
+
+
+@router.callback_query(F.data == "a:rcc")
+async def cb_receipts_cap(call: CallbackQuery, state: FSMContext):
+    await ask(call, state, "rcc", "💰 До какой суммы чек можно одобрять автоматически? Отправьте число в ₽ "
+                                  "(например <code>3000</code>). <code>0</code> — без лимита.", cancel="a:rc")
+
+
+@inp("rcc")
+async def i_receipts_cap(m, state, d, txt, bot):
+    import receipts
+    v = parse_amount(txt or "")
+    if v is None or v < 0:
+        return await m.answer("Нужно число, например 3000:")
+    receipts.put("cap", str(v))  # «0» — без лимита
+    await state.clear()
+    text, markup = receipts_screen("✅ Сохранено.\n\n")
+    await m.answer(text, reply_markup=markup)
 
 
 @router.callback_query(F.data.startswith("a:set:"))

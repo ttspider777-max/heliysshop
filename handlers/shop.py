@@ -550,19 +550,46 @@ async def send_receipt(m: Message, o, lang: str, bot: Bot):
                f"💰 Сумма: <b>{money(o['price'])}</b>")
     if o["promo_code"]:
         caption += f"\n🎟 Промокод: <code>{html.escape(o['promo_code'])}</code>"
-    markup = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Одобрить", callback_data=f"a:ook:{oid}", style="success"),
-        InlineKeyboardButton(text="❌ Отклонить", callback_data=f"a:ono:{oid}", style="danger"),
-    ]])
+    ok_btn = InlineKeyboardButton(text="✅ Одобрить", callback_data=f"a:ook:{oid}", style="success")
+    no_btn = InlineKeyboardButton(text="❌ Отклонить", callback_data=f"a:ono:{oid}", style="danger")
+    markup = InlineKeyboardMarkup(inline_keyboard=[[ok_btn, no_btn]])
+
+    # 🤖 автопроверка чека нейросетью (админка → ⚙️ Настройки → 🤖 Проверка чеков)
+    import receipts
+    from services import approve_order, reject_order
+    if receipts.on():
+        await m.answer(t("receipt_checking", lang))
+        res = await receipts.check(bot, m, o["price"], db.get_setting("sbp_details", config.SBP_DETAILS), "order", oid)
+        if res and res["decision"] == "approve":
+            done = await approve_order(bot, oid)
+            if done and receipts.report_on():
+                await send_to_admins(bot, file_id, is_photo, f"{caption}\n\n{receipts.summary(res)}\n"
+                                     f"📦 {ORDER_DONE.get(done, done)}", None)
+            return
+        if res and res["decision"] == "reject":
+            if await reject_order(bot, oid, res["reason"]) and receipts.report_on():
+                undo = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+                    text="↩️ Всё же принять", callback_data=f"a:ook:{oid}", style="success")]])
+                await send_to_admins(bot, file_id, is_photo, f"{caption}\n\n{receipts.summary(res)}", undo)
+            return
+        if res:  # сомнения — владельцу на проверку, с подсказкой нейросети
+            caption += f"\n\n{receipts.summary(res)}"
+    await send_to_admins(bot, file_id, is_photo, caption, markup)
+    await m.answer(t("receipt_sent", lang), reply_markup=kb([menu_row(lang)]))
+
+
+ORDER_DONE = {"done": "товар выдан", "manual": "ждёт ручной выдачи", "refunded": "товара нет — деньги на балансе"}
+
+
+async def send_to_admins(bot: Bot, file_id, is_photo, caption, markup):
     for aid in admins.ids():
         try:
             if is_photo:
-                await bot.send_photo(aid, file_id, caption=caption, reply_markup=markup)
+                await bot.send_photo(aid, file_id, caption=caption[:1024], reply_markup=markup)
             else:
-                await bot.send_document(aid, file_id, caption=caption, reply_markup=markup)
+                await bot.send_document(aid, file_id, caption=caption[:1024], reply_markup=markup)
         except Exception as e:
             logging.warning("не удалось отправить чек админу %s: %s", aid, e)
-    await m.answer(t("receipt_sent", lang), reply_markup=kb([menu_row(lang)]))
 
 
 @router.message(ShopSt.receipt)

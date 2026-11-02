@@ -726,13 +726,16 @@ async def groups_view(target, prefix=""):
             "не трогает. Для этого у бота в чате должно быть право <b>блокировать участников</b>.\n\n"
             "🧠 <b>Нейросеть</b> понимает вопросы, сформулированные как угодно, и отвечает по справочнику и FAQ. "
             "Нужен бесплатный ключ Groq: console.groq.com → API Keys → Create. Без ключа бот отвечает только "
-            "по ключевым словам.")
+            "по ключевым словам.\n\n🪄 С тем же ключом у владельцев в «🧾 Мои боты» появляется кнопка «🪄 Реклама» — "
+            "3 готовых рекламных поста по товарам их магазина. Этот же ключ используется для проверки чеков "
+            "(💳 Оплата → 🤖 Проверка чеков).")
     await render(target, text, kb([
         [B(f"🤖 Автоответы: {_onoff(on)}", "ca:remt:group_help")],
         [B(f"🔔 Напоминания в чаты: {_onoff(core.flag_on('remind_groups'))}", "ca:remt:remind_groups_g")],
         [B(f"🚪 Удалять без подписки: {_onoff(kick)}", "ca:remt:kick_expired")],
         [B("🧠 Ключ нейросети" + (" ✅" if ai.key() else ""), "ca:aik", style="primary")]
         + ([B(f"🧠 Нейросеть: {_onoff(core.flag_on('ai'))}", "ca:remt:ai")] if ai.key() else []),
+        [B(f"🪄 Реклама для владельцев: {_onoff(core.flag_on('ads_ai'))}", "ca:remt:ads_ai")] if ai.key() else [],
         back(),
     ]))
 
@@ -783,9 +786,10 @@ async def cb_remind(call: CallbackQuery):
 @router.callback_query(F.data.startswith("ca:remt:"))
 async def cb_remind_toggle(call: CallbackQuery):
     key = call.data[8:]
-    from_groups = key in ("group_help", "remind_groups_g", "kick_expired", "ai")  # экран «💬 Конструктор в чатах»
+    from_groups = key in ("group_help", "remind_groups_g", "kick_expired", "ai", "ads_ai")  # экран «💬 Чаты»
     key = {"remind_groups_g": "remind_groups"}.get(key, key)
-    if key in ("remind", "autobuy", "remind_groups", "group_help", "kick_expired", "lastday", "weekly", "ai"):
+    if key in ("remind", "autobuy", "remind_groups", "group_help", "kick_expired", "lastday", "weekly", "ai",
+               "ads_ai"):
         core.put(key, "1" if not core.flag_on(key) else "0")
     await (groups_view(call) if from_groups else remind_view(call))
     await call.answer("Готово")
@@ -1311,8 +1315,101 @@ async def pay_view(target, prefix=""):
         [B(f"💳 СБП: {_onoff(core.pay_on('sbp'))}", "ca:ptog:sbp"), B("💳 Реквизиты", "ca:v:sbp")],
         [B("💎 CryptoBot — API-токен", "ca:cr:cryptobot"), B("🚀 xRocket — API-токен", "ca:cr:xrocket")],
         [B("💱 Курс USDT (xRocket)", "ca:v:usdt_rate"), B("💰 Цена в ₽", "ca:v:price")],
+        [B("🤖 Проверка чеков СБП нейросетью", "ca:rc", style="primary")],
         back(),
     ]))
+
+
+# ======================= 🤖 проверка чеков нейросетью =======================
+async def rc_view(target, prefix=""):
+    import receipts
+    ns = receipts.CTOR
+    st = receipts.stats()
+    has_key = bool(receipts.api_key(ns))
+    own_key = bool(receipts.get("key", ns=ns))
+    text = (f"{prefix}🤖 <b>Проверка чеков СБП нейросетью</b> — {'✅ включена' if receipts.on(ns) else '⏸ выключена'}\n\n"
+            "Каждый чек за тариф или пополнение бот смотрит сам: сумма, получатель (сверяет с реквизитами СБП), "
+            "дата, номер операции, признаки монтажа, повторы.\n<blockquote>✅ всё сходится — магазин создаётся / "
+            "тариф продлевается / баланс зачисляется сам\n❌ не чек, чек уже был, сумма меньше — отклоняется сам "
+            "(тебе приходит с кнопкой «↩️ Всё же принять»)\n👀 сомнения — приходит тебе с подсказкой</blockquote>\n"
+            f"🔑 Ключ Groq: {'свой' if own_key else 'тот же, что для чатов' if has_key else '❗ не задан'}\n"
+            f"💰 Автоодобрение до: <b>{money(receipts.cap(ns)) if receipts.cap(ns) else 'без лимита'}</b>\n"
+            f"📨 Отчёты о каждом решении: <b>{_onoff(receipts.report_on(ns))}</b>\n"
+            f"📊 Проверено: ✅ {st.get('approve', 0)} · ❌ {st.get('reject', 0)} · 👀 {st.get('review', 0)}\n\n"
+            "⚠️ Нейросеть не видит твой банк: очень хорошую подделку может пропустить — для этого лимит суммы. "
+            "Поступления в банке всё равно поглядывай.")
+    rows = [[B("🔑 Ключ Groq" + (" ✅" if has_key else ""), "ca:rck", style="primary")]]
+    if has_key:
+        rows.append([B("⏸ Выключить" if receipts.get("on", "1", ns=ns) == "1" else "▶️ Включить", "ca:rct"),
+                     B(f"💰 Лимит: {money(receipts.cap(ns)) if receipts.cap(ns) else '∞'}", "ca:rcc")])
+        rows.append([B(f"📨 Отчёты: {_onoff(receipts.report_on(ns))}", "ca:rcr")])
+    rows.append(back("ca:pay"))
+    await render(target, text, kb(rows))
+
+
+@router.callback_query(F.data == "ca:rc")
+async def cb_rc(call: CallbackQuery):
+    await rc_view(call)
+    await call.answer()
+
+
+@router.callback_query(F.data.in_({"ca:rct", "ca:rcr"}))
+async def cb_rc_toggle(call: CallbackQuery):
+    import receipts
+    key = "on" if call.data == "ca:rct" else "report"
+    receipts.put(key, "0" if receipts.get(key, "1", ns=receipts.CTOR) == "1" else "1", ns=receipts.CTOR)
+    await rc_view(call)
+    await call.answer("Готово")
+
+
+@router.callback_query(F.data == "ca:rck")
+async def cb_rc_key(call: CallbackQuery):
+    await ask(call, "x_rckey", "🔑 Отправь ключ Groq для проверки чеков (можно тот же, что для чатов). "
+                               "Сообщение с ключом я сразу удалю. <code>-</code> — убрать отдельный ключ "
+                               "(тогда используется ключ чатов).", cancel="ca:rc")
+
+
+async def in_rc_key(m, w, txt, finish, bot):
+    import receipts
+    try:
+        await m.delete()
+    except Exception:
+        pass
+    val = txt.strip()
+    if val == "-":
+        receipts.put("key", None, ns=receipts.CTOR)
+        finish()
+        return await rc_view(m, "🗑 Отдельный ключ убран.\n\n")
+    if not re.fullmatch(r"gsk_[A-Za-z0-9]{20,}", val):
+        return await m.answer("Это не похоже на ключ Groq (начинается с gsk_). Пришли ещё раз:")
+    err = await receipts.check_key(val)
+    if err:
+        return await m.answer(f"⚠️ Groq не принял ключ: <code>{html.escape(err)}</code>\nПришли другой:")
+    receipts.put("key", val, ns=receipts.CTOR)
+    finish()
+    await rc_view(m, "✅ Ключ проверен — чеки теперь проверяет нейросеть.\n\n")
+
+
+@router.callback_query(F.data == "ca:rcc")
+async def cb_rc_cap(call: CallbackQuery):
+    await ask(call, "x_rccap", "💰 До какой суммы чек можно принимать автоматически? Число в ₽ "
+                               "(например <code>1000</code>). <code>0</code> — без лимита.", cancel="ca:rc")
+
+
+async def in_rc_cap(m, w, txt, finish, bot):
+    import receipts
+    try:
+        v = float(txt.replace(",", ".").strip())
+    except ValueError:
+        return await m.answer("Нужно число, например 1000:")
+    if v < 0:
+        return await m.answer("Нужно число от 0:")
+    receipts.put("cap", str(v), ns=receipts.CTOR)
+    finish()
+    await rc_view(m, "✅ Сохранено.\n\n")
+
+
+EXTRA.update({"x_rckey": in_rc_key, "x_rccap": in_rc_cap})
 
 
 @router.callback_query(F.data == "ca:pay")
@@ -1384,6 +1481,9 @@ async def cb_payment_receipt(call: CallbackQuery):
     ok = call.data.startswith("ca:pok:")
     pid = int(call.data[7:])
     p = core.payment(pid)
+    if p and ok and p["status"] == "rejected" and _ai_rejected("ctor_pay", pid):
+        core.set_payment(pid, status="pending")  # нейросеть ошиблась — принимаю вручную
+        p = core.payment(pid)
     if not p or p["status"] != "pending":
         await mark_admin_msg(call, f"ℹ️ Уже обработана: {p['status'] if p else '—'}")
         return await call.answer("Уже обработана", show_alert=True)
@@ -1393,10 +1493,15 @@ async def cb_payment_receipt(call: CallbackQuery):
         await mark_admin_msg(call, f"✅ Принято ({who})")
         await cbot.on_paid(pid, p["receipt"])
     else:
-        core.set_payment(pid, status="rejected")
-        await cbot.send(p["user_id"], core.tx("pay_rejected", id=pid), kb([[cbot.B("support", "c:sup")]]))
+        await cbot.reject_payment(pid)
         await mark_admin_msg(call, f"❌ Отклонено ({who})")
         await call.answer("Отклонено")
+
+
+def _ai_rejected(kind, ref_id):
+    import receipts
+    c = receipts.last_check(kind, ref_id)
+    return bool(c and c["decision"] == "reject")
 
 
 # ======================= рассылка =======================
@@ -1413,23 +1518,19 @@ async def cb_topup_receipt(call: CallbackQuery):
     ok = call.data.startswith("ca:tok:")
     tid = int(call.data[7:])
     t = core.topup(tid)
+    if t and ok and t["status"] == "rejected" and _ai_rejected("ctor_topup", tid):
+        core.set_topup(tid, status="pending")  # нейросеть ошиблась — зачисляю вручную
+        t = core.topup(tid)
     if not t or t["status"] != "pending":
         await mark_admin_msg(call, "ℹ️ Уже обработан")
         return await call.answer("Уже обработан", show_alert=True)
     who = html.escape(call.from_user.first_name or "admin")
     if ok:
-        core.set_topup(tid, status="done")
-        core.add_balance(t["user_id"], t["amount"])
-        u = core.user(t["user_id"])
-        await cbot.send(t["user_id"], core.tx("topup_ok", amount=money(t["amount"]), balance=money(u["balance"])),
-                        kb([[cbot.B("create", "c:new")], [cbot.B("menu", "c:menu")]]))
         await mark_admin_msg(call, f"✅ Зачислено ({who})")
         await call.answer("Зачислено")
-        await cbot.autobuy_user(t["user_id"])  # хватает на пробного бота — купить сразу
+        await cbot.approve_topup(tid)
     else:
-        core.set_topup(tid, status="rejected")
-        await cbot.send(t["user_id"], core.tx("topup_no", amount=money(t["amount"])),
-                        kb([[cbot.B("support", "c:sup")]]))
+        await cbot.reject_topup(tid)
         await mark_admin_msg(call, f"❌ Отклонено ({who})")
         await call.answer("Отклонено")
 

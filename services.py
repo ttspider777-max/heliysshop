@@ -57,6 +57,32 @@ def _menu_kb(lang):
     return kb([[btn("my_orders", lang, "ord:m:0")], [btn("main_menu", lang, "menu")]])
 
 
+async def approve_order(bot: Bot, oid):
+    """Оплата по чеку подтверждена (админом или нейросетью). -> итог выдачи или None, если заказ уже обработан."""
+    o = db.order(oid)
+    if not o or o["status"] != "pending":
+        return None
+    db.set_order(oid, status="paid")
+    db.add_deposited(o["user_id"], o["price"])  # реальные деньги — растёт статус покупателя
+    return await fulfill(bot, oid)
+
+
+async def reject_order(bot: Bot, oid, reason=None):
+    """Чек не принят. reason — причина от нейросети (покупатель её увидит). -> False, если заказ уже обработан."""
+    from texts import t
+    from ui import btn, kb
+    o = db.order(oid)
+    if not o or o["status"] != "pending":
+        return False
+    db.set_order(oid, status="rejected")
+    db.restore_promo(o)
+    u = db.get_user(o["user_id"])
+    lang = u["lang"] if u else "ru"
+    text = t("receipt_ai_rejected", lang, reason=html.escape(reason)) if reason else t("order_rejected", lang, oid=oid)
+    await safe_send(bot, o["user_id"], text, kb([[btn("support", lang, "sup")]]))
+    return True
+
+
 async def fulfill(bot: Bot, oid):
     """Заказ оплачен — выдаём товар. Возвращает итоговый статус: done / manual / refunded."""
     o = db.order(oid)

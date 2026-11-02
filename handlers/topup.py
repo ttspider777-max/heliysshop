@@ -195,15 +195,41 @@ async def send_receipt(m: Message, tp, lang: str, bot: Bot):
         InlineKeyboardButton(text="✅ Зачислить", callback_data=f"a:tuok:{tid}", style="success"),
         InlineKeyboardButton(text="❌ Отклонить", callback_data=f"a:tuno:{tid}", style="danger"),
     ]])
-    for aid in admins.ids():
-        try:
-            if is_photo:
-                await bot.send_photo(aid, file_id, caption=caption, reply_markup=markup)
-            else:
-                await bot.send_document(aid, file_id, caption=caption, reply_markup=markup)
-        except Exception as e:
-            logging.warning("не удалось отправить чек пополнения админу %s: %s", aid, e)
+    from handlers.shop import send_to_admins
+    import receipts
+    if receipts.on():  # 🤖 автопроверка чека нейросетью
+        await m.answer(t("receipt_checking", lang))
+        res = await receipts.check(bot, m, tp["amount"], db.get_setting("sbp_details", config.SBP_DETAILS),
+                                   "topup", tid)
+        if res and res["decision"] == "approve":
+            if db.topup(tid)["status"] == "pending":
+                await complete(bot, tid)
+                if receipts.report_on():
+                    await send_to_admins(bot, file_id, is_photo, f"{caption}\n\n{receipts.summary(res)}", None)
+            return
+        if res and res["decision"] == "reject":
+            if await reject_topup(bot, tid, res["reason"]) and receipts.report_on():
+                undo = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
+                    text="↩️ Всё же зачислить", callback_data=f"a:tuok:{tid}", style="success")]])
+                await send_to_admins(bot, file_id, is_photo, f"{caption}\n\n{receipts.summary(res)}", undo)
+            return
+        if res:
+            caption += f"\n\n{receipts.summary(res)}"
+    await send_to_admins(bot, file_id, is_photo, caption, markup)
     await m.answer(t("topup_receipt_sent", lang), reply_markup=kb([menu_row(lang)]))
+
+
+async def reject_topup(bot: Bot, tid, reason=None):
+    """Чек пополнения не принят. -> False, если заявка уже обработана."""
+    tp = db.topup(tid)
+    if not tp or tp["status"] != "pending":
+        return False
+    db.set_topup(tid, status="rejected")
+    u = db.get_user(tp["user_id"])
+    lang = u["lang"] if u else "ru"
+    text = t("receipt_ai_rejected", lang, reason=html.escape(reason)) if reason else t("topup_rejected", lang, tid=tid)
+    await safe_send(bot, tp["user_id"], text, kb([[btn("support", lang, "sup")]]))
+    return True
 
 
 # ======================= звёзды =======================
@@ -245,8 +271,12 @@ async def complete(bot: Bot, tid):
 
 @admin_router.callback_query(F.data.startswith("a:tuok:") | F.data.startswith("a:tuno:"))
 async def cb_admin_topup(call: CallbackQuery, bot: Bot):
+    from handlers.admin import ai_rejected
     _, op, tid = call.data.split(":")
     tp = db.topup(int(tid))
+    if tp and op == "tuok" and tp["status"] == "rejected" and ai_rejected("topup", tp["id"]):
+        db.set_topup(tp["id"], status="pending")  # нейросеть ошиблась — админ зачисляет вручную
+        tp = db.topup(tp["id"])
     if not tp or tp["status"] != "pending":
         await mark_admin_msg(call, "ℹ️ Уже обработана")
         return await call.answer("Заявка уже обработана", show_alert=True)
@@ -256,9 +286,6 @@ async def cb_admin_topup(call: CallbackQuery, bot: Bot):
         await mark_admin_msg(call, f"✅ Зачислено {money(tp['amount'])} ({who})")
         await call.answer("Зачислено")
     else:
-        db.set_topup(tp["id"], status="rejected")
-        u = db.get_user(tp["user_id"])
-        lang = u["lang"] if u else "ru"
-        await safe_send(bot, tp["user_id"], t("topup_rejected", lang, tid=tp["id"]), kb([[btn("support", lang, "sup")]]))
+        await reject_topup(bot, tp["id"])
         await mark_admin_msg(call, f"❌ Отклонено ({who})")
         await call.answer("Отклонено")

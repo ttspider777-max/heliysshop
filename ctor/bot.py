@@ -1262,16 +1262,73 @@ async def on_pay_receipt(m: Message, d, bot: Bot):
                f"💰 Сумма: <b>{money(p['amount'])}</b>")
     markup = kb([[raw_btn("✅ Принять", f"ca:pok:{p['id']}", style="success"),
                   raw_btn("❌ Отклонить", f"ca:pno:{p['id']}", style="danger")]])
+    import receipts
+    if receipts.on(receipts.CTOR):  # 🤖 автопроверка чека нейросетью (/admin → 💳 Оплата → 🤖 Проверка чеков)
+        await m.answer(tx("receipt_checking"))
+        res = await receipts.check(bot, m, p["amount"], core.sbp(), "ctor_pay", p["id"], ns=receipts.CTOR)
+        if res and res["decision"] == "approve":
+            if core.payment(p["id"])["status"] == "pending":
+                if receipts.report_on(receipts.CTOR):
+                    await admins_receipt(bot, m, file_id, f"{caption}\n\n{receipts.summary(res)}", None)
+                await on_paid(p["id"], file_id)
+            return
+        if res and res["decision"] == "reject":
+            if await reject_payment(p["id"], res["reason"]) and receipts.report_on(receipts.CTOR):
+                undo = kb([[raw_btn("↩️ Всё же принять", f"ca:pok:{p['id']}", style="success")]])
+                await admins_receipt(bot, m, file_id, f"{caption}\n\n{receipts.summary(res)}", undo)
+            return
+        if res:
+            caption += f"\n\n{receipts.summary(res)}"
+    await admins_receipt(bot, m, file_id, caption, markup)
+    await m.answer(tx("pay_receipt_sent" if p["kind"] == "create" else "pay_receipt_sent_buy"),
+                   reply_markup=kb([[B("menu", "c:menu")]]))
+
+
+async def admins_receipt(bot: Bot, m: Message, file_id, caption, markup):
+    """Чек (фото или файл) владельцам конструктора."""
     for aid in sorted(config.ADMINS):
         try:
             if m.photo:
-                await bot.send_photo(aid, file_id, caption=caption, reply_markup=markup)
+                await bot.send_photo(aid, file_id, caption=caption[:1024], reply_markup=markup)
             else:
-                await bot.send_document(aid, file_id, caption=caption, reply_markup=markup)
+                await bot.send_document(aid, file_id, caption=caption[:1024], reply_markup=markup)
         except Exception as e:
             log.warning("конструктор: чек админу %s не отправлен: %s", aid, e)
-    await m.answer(tx("pay_receipt_sent" if p["kind"] == "create" else "pay_receipt_sent_buy"),
-                   reply_markup=kb([[B("menu", "c:menu")]]))
+
+
+async def reject_payment(pid, reason=None):
+    """Чек оплаты не принят (админом или нейросетью). -> False, если заявка уже обработана."""
+    p = core.payment(pid)
+    if not p or p["status"] != "pending":
+        return False
+    core.set_payment(pid, status="rejected")
+    text = tx("receipt_ai_rejected", reason=html.escape(reason)) if reason else tx("pay_rejected", id=pid)
+    await send(p["user_id"], text, kb([[B("support", "c:sup")]]))
+    return True
+
+
+async def approve_topup(tid):
+    """Чек пополнения принят. -> False, если уже обработан."""
+    t = core.topup(tid)
+    if not t or t["status"] != "pending":
+        return False
+    core.set_topup(tid, status="done")
+    core.add_balance(t["user_id"], t["amount"])
+    u = core.user(t["user_id"])
+    await send(t["user_id"], tx("topup_ok", amount=money(t["amount"]), balance=money(u["balance"])),
+               kb([[B("create", "c:new")], [B("menu", "c:menu")]]))
+    await autobuy_user(t["user_id"])  # хватает на пробного бота — купить сразу
+    return True
+
+
+async def reject_topup(tid, reason=None):
+    t = core.topup(tid)
+    if not t or t["status"] != "pending":
+        return False
+    core.set_topup(tid, status="rejected")
+    text = tx("receipt_ai_rejected", reason=html.escape(reason)) if reason else tx("topup_no", amount=money(t["amount"]))
+    await send(t["user_id"], text, kb([[B("support", "c:sup")]]))
+    return True
 
 
 async def after_paid(p):
@@ -1545,7 +1602,9 @@ async def bots_view(target, uid):
         text += f"\n{STATUS_ICON.get(b['status'], '•')} <b>{name}</b>{badge} — {STATUS_RU.get(b['status'], b['status'])}"
         text += f"\n     {html.escape(core.plan_line(b))}"
         if b["status"] == "running" and b["username"]:
-            rows.append([raw_btn(f"🤖 @{b['username']}", url=f"https://t.me/{b['username']}")])
+            from ctor import ai
+            rows.append([raw_btn(f"🤖 @{b['username']}", url=f"https://t.me/{b['username']}")]
+                        + ([B("ad", f"c:adv:{b['id']}")] if ai.key() and core.flag_on("ads_ai") else []))
         if b["status"] == "failed":
             rows.append([B("new_token", f"c:rt:{b['id']}", text=f"{bt('new_token')} · @{b['username']}")])
         if can_renew(b):
@@ -1568,6 +1627,58 @@ async def bots_view(target, uid):
         rows.append(extra)
     rows.append([B("menu", "c:menu")])
     await out(target, text, kb(rows))
+
+
+# ======================= 🪄 реклама для магазина (нейросеть) =======================
+_ad_last = {}  # uid -> время последней генерации
+_ad_day = {}   # (uid, дата) -> сколько раз сегодня
+
+
+def shop_products(bid, limit=12):
+    """Активные товары магазина клиента (из его базы): [(название, цена)] — самые дешёвые и популярные сверху."""
+    path = hosting.db_path(bid)
+    if not os.path.exists(path):
+        return []
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return [(r[0], float(r[1] or 0)) for r in con.execute(
+            "SELECT p.name, p.price FROM products p LEFT JOIN orders o ON o.product_id=p.id "
+            "WHERE p.active=1 GROUP BY p.id ORDER BY COUNT(o.id) DESC, p.price LIMIT ?", (limit,))]
+    except sqlite3.Error:
+        return []
+    finally:
+        con.close()
+
+
+@router.callback_query(F.data.startswith("c:adv:"))
+async def cb_ad(call: CallbackQuery):
+    import time as _t
+    from ctor import ai
+    uid = call.from_user.id
+    b = db.hosted(int(call.data[6:]) if call.data[6:].isdigit() else 0)
+    if not b or b["user_id"] != uid or not b["username"] or not ai.key():
+        return await call.answer()
+    today = _t.strftime("%Y-%m-%d")
+    if _t.monotonic() - _ad_last.get(uid, -1e9) < 60 or _ad_day.get((uid, today), 0) >= 10:
+        return await call.answer(core.plain(tx("ad_limit")), show_alert=True)
+    _ad_last[uid] = _t.monotonic()
+    _ad_day[(uid, today)] = _ad_day.get((uid, today), 0) + 1
+    await call.answer()
+    name = html.escape(b["username"])
+    await send(uid, tx("ad_wait", username=name))
+    try:
+        cfg = json.loads(b["cfg"] or "{}")
+    except ValueError:
+        cfg = {}
+    posts = await ai.ad_posts(cfg.get("title") or b["shop_name"] or b["username"], cfg.get("desc") or "",
+                              shop_products(b["id"]), f"https://t.me/{b['username']}")
+    if not posts:
+        return await send(uid, tx("ad_fail"), kb([[B("ad_more", f"c:adv:{b['id']}")]]))
+    await send(uid, tx("ad_head", username=name))
+    for i, p in enumerate(posts, 1):
+        last = i == len(posts)
+        await send(uid, f"<b>Вариант {i}</b>\n\n{p}",
+                   kb([[B("ad_more", f"c:adv:{b['id']}"), B("bots", "c:bots")]]) if last else None)
 
 
 def has_paid(uid):
@@ -1719,14 +1830,22 @@ async def send_receipt(m: Message, t, bot: Bot):
                f"💰 Сумма: <b>{money(t['amount'])}</b>")
     markup = kb([[raw_btn("✅ Зачислить", f"ca:tok:{t['id']}", style="success"),
                   raw_btn("❌ Отклонить", f"ca:tno:{t['id']}", style="danger")]])
-    for aid in sorted(config.ADMINS):
-        try:
-            if m.photo:
-                await bot.send_photo(aid, file_id, caption=caption, reply_markup=markup)
-            else:
-                await bot.send_document(aid, file_id, caption=caption, reply_markup=markup)
-        except Exception as e:
-            log.warning("конструктор: чек админу %s не отправлен: %s", aid, e)
+    import receipts
+    if receipts.on(receipts.CTOR):  # 🤖 автопроверка чека нейросетью
+        await m.answer(tx("receipt_checking"))
+        res = await receipts.check(bot, m, t["amount"], core.sbp(), "ctor_topup", t["id"], ns=receipts.CTOR)
+        if res and res["decision"] == "approve":
+            if await approve_topup(t["id"]) and receipts.report_on(receipts.CTOR):
+                await admins_receipt(bot, m, file_id, f"{caption}\n\n{receipts.summary(res)}", None)
+            return
+        if res and res["decision"] == "reject":
+            if await reject_topup(t["id"], res["reason"]) and receipts.report_on(receipts.CTOR):
+                undo = kb([[raw_btn("↩️ Всё же зачислить", f"ca:tok:{t['id']}", style="success")]])
+                await admins_receipt(bot, m, file_id, f"{caption}\n\n{receipts.summary(res)}", undo)
+            return
+        if res:
+            caption += f"\n\n{receipts.summary(res)}"
+    await admins_receipt(bot, m, file_id, caption, markup)
     await m.answer(tx("topup_sent"), reply_markup=kb([[B("menu", "c:menu")]]))
 
 

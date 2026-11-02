@@ -16,6 +16,7 @@ from ctor import core
 log = logging.getLogger(__name__)
 URL = "https://api.groq.com/openai/v1"
 DEFAULT_MODEL = "openai/gpt-oss-20b"
+AD_MODEL = "openai/gpt-oss-120b"
 
 PROMPT = (
     "Ты — помощник в Telegram-чате владельцев интернет-магазинов, созданных в боте-конструкторе @{bot}. "
@@ -89,6 +90,37 @@ async def check_key(api_key):
         return None
     except Exception as e:
         return str(e)[:200]
+
+
+AD_PROMPT = (
+    "Ты — копирайтер Telegram-магазинов. Напиши 3 РАЗНЫХ рекламных поста для магазина-бота в Telegram, чтобы "
+    "владелец разместил их в каналах и чатах. Требования: русский язык; 300–600 символов каждый; живо, без "
+    "канцелярита и без выдуманных фактов (гарантий, отзывов, цифр продаж, которых нет в данных); 3–6 уместных эмодзи; "
+    "конкретные товары и цены из списка; в конце призыв и ссылка {link}. Стили: 1) короткий цепляющий, "
+    "2) список хитов с ценами, 3) история/выгода для покупателя. Без markdown (никаких ** и #). "
+    "Раздели посты строкой из трёх знаков равенства: ==="
+)
+
+
+async def ad_posts(title, desc, products, link):
+    """Три рекламных поста для магазина. -> список текстов (экранированы для HTML) или None."""
+    items = "\n".join(f"- {n} — {p:g}₽" for n, p in products[:12]) or "- (товаров пока нет — пиши про магазин в целом)"
+    user = f"Магазин: {title}\nОписание: {desc or '—'}\nСсылка: {link}\nТовары:\n{items}"
+    ad_model = core.get("ad_model") or AD_MODEL  # крупная модель — русский текст заметно лучше
+    payload = {"model": ad_model, "max_tokens": 2500, "temperature": 0.9,
+               "messages": [{"role": "system", "content": AD_PROMPT.format(link=link)},
+                            {"role": "user", "content": user}]}
+    if ad_model.startswith("openai/gpt-oss"):
+        payload["reasoning_effort"] = "low"
+    try:
+        data = await _post("/chat/completions", payload, key(), timeout=60)
+        text = (data["choices"][0]["message"]["content"] or "").strip()
+    except Exception as e:
+        log.info("конструктор: реклама не сгенерировалась: %s", e)
+        return None
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    posts = [p.strip() for p in re.split(r"\n\s*={3,}\s*\n", text) if len(p.strip()) > 40]
+    return [html.escape(p[:1500]) for p in posts[:3]] or None
 
 
 async def answer(question):
