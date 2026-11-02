@@ -104,6 +104,11 @@ QUESTION_START = ("как", "где", "что", "почему", "зачем", "�
                   "подскаж", "помогит", "помоги", "не могу", "не получается", "не работает", "не отвечает", "кто")
 
 
+# служебные слова из вопросов FAQ не считаются совпадением («когда», «будет», «можно»…)
+STOP = {"когда", "будет", "можно", "нужно", "скольк", "какой", "какая", "какие", "почему", "если", "есть", "этот",
+        "чтобы", "через", "тебя", "меня", "свой", "своег", "своих", "зачем"}
+
+
 def norm(text):
     return re.sub(r"\s+", " ", re.sub(r"[^\w\s?]", " ", (text or "").lower().replace("ё", "е"))).strip()
 
@@ -117,7 +122,7 @@ def entries():
     """Справочник + вопросы из /admin → ❓ FAQ (для FAQ основы слов берутся из самого вопроса)."""
     out = list(HELP)
     for f in core.jget("faq", core.FAQ):
-        words = [w[:6] for w in norm(f.get("q")).split() if len(w) > 3]
+        words = [w[:6] for w in norm(f.get("q")).split() if len(w) > 3 and w[:6] not in STOP]
         if words:
             out.append({"q": f.get("q") or "", "a": html.escape(f.get("a") or ""), "kw": words})
     return out
@@ -127,10 +132,9 @@ def entries():
 GENERIC = ("добав", "созда", "нов", "измен", "сдела", "поменя", "убра")
 
 
-def find_answer(text):
-    """Лучший ответ из справочника или None."""
+def find_scored(text):
+    """-> (лучшая статья справочника или None, очки совпадения)."""
     t = " " + norm(text) + " "
-    words = t.split()
     best, best_score = None, 0
     for e in entries():
         score = sum(0.5 if k in GENERIC else 1 for k in e["kw"] if (" " + k) in t)
@@ -138,9 +142,15 @@ def find_answer(text):
             score += 2
         if score > best_score:
             best, best_score = e, score
+    return best, best_score
+
+
+def find_answer(text):
+    """Лучший ответ из справочника или None."""
+    best, best_score = find_scored(text)
     if best is None:
         return None
-    if best_score >= 2 or (best_score >= 1 and len(words) <= 6):
+    if best_score >= 2 or (best_score >= 1 and len(norm(text).split()) <= 6):
         return best
     return None
 
@@ -191,6 +201,19 @@ async def on_group_text(m: Message, bot: Bot):
             return  # люди переписываются между собой
     if not (to_me or is_question(m.text)):
         return
+    from ctor import ai
+    rows = [[raw_btn(f"🤖 Открыть @{me}", url=f"https://t.me/{me}")]] if me else []
+    markup = kb(rows) if rows else None
+    e, score = find_scored(m.text)
+    # точное совпадение со справочником — отвечаю из него (быстро и бесплатно), остальное — нейросети
+    # (лимит нейросети исчерпан или она недоступна — отвечаю по ключевым словам, как без неё)
+    if not (e and score >= 2) and ai.on() and ai.allowed(m.chat.id):
+        text = await ai.answer(m.text)
+        if text:
+            await m.reply(f"💡 {text}", reply_markup=markup)
+            return
+        if text == "":  # нейросеть решила, что вопрос не про магазины — молчу
+            return
     e = find_answer(m.text)
     if not e:
         return
@@ -199,10 +222,7 @@ async def on_group_text(m: Message, bot: Bot):
     if now - _last.get(key, -1e9) < 120:
         return
     _last[key] = now
-    rows = []
-    if me:
-        rows.append([raw_btn(f"🤖 Открыть @{me}", url=f"https://t.me/{me}")])
-    await m.reply(answer_text(e), reply_markup=kb(rows) if rows else None)
+    await m.reply(answer_text(e), reply_markup=markup)
 
 
 # ======================= доступ к чатам по подписке =======================

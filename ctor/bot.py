@@ -1928,6 +1928,10 @@ async def remind_loop():
             if n % 5 == 0 and _bot:  # чаты: убрать тех, у кого кончилась подписка, вернуть продливших
                 from ctor import groups
                 await groups.kick_tick(_bot)
+            from ctor import retention  # скидка в последний день пробного и еженедельный отчёт
+            await retention.lastday_tick()
+            if n % 30 == 0:
+                await retention.weekly_tick()
         except asyncio.CancelledError:
             raise
         except Exception:

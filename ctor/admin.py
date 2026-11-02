@@ -7,6 +7,7 @@
 import asyncio
 import html
 import logging
+import re
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -646,14 +647,23 @@ def parse_promo(txt):
 
 # ======================= напоминания и автопокупка =======================
 async def remind_view(target, prefix=""):
-    from ctor import bot as cbot
+    from ctor import bot as cbot, retention
     rem, ab, rg = core.flag_on("remind"), core.flag_on("autobuy"), core.flag_on("remind_groups")
+    ld, wk = core.flag_on("lastday"), core.flag_on("weekly")
+    ldn = db.val("SELECT COUNT(*) FROM ctor_promo_uses WHERE code LIKE 'LAST%'") or 0
     abn = db.val("SELECT COUNT(*) FROM ctor_payments WHERE receipt='balance:auto' AND status='paid'") or 0
     days = ", ".join(map(str, cbot.remind_days()))
     text = (f"{prefix}🔔 <b>Напоминания и автопокупка</b>\n\n<blockquote>"
             f"🔔 Напоминания о конце срока: <b>{_onoff(rem)}</b>\n"
             f"💬 Дублировать в чаты: <b>{_onoff(rg)}</b>\n"
-            f"🔁 Автопокупка с баланса: <b>{_onoff(ab)}</b> · сработала {abn} раз</blockquote>\n\n"
+            f"🔁 Автопокупка с баланса: <b>{_onoff(ab)}</b> · сработала {abn} раз\n"
+            f"🎁 Скидка в последний день пробного: <b>{_onoff(ld)}</b> · −{retention.lastday_pct()}% на "
+            f"{retention.lastday_hours()} ч · купили по ней: {ldn}\n"
+            f"📊 Еженедельный отчёт владельцам: <b>{_onoff(wk)}</b></blockquote>\n\n"
+            "<b>Скидка последнего дня</b>: за сутки до конца пробного бот сам создаёт личный промокод (одно "
+            "использование), применяет его и пишет человеку.\n"
+            "<b>Отчёт</b>: раз в 7 дней владельцу работающего магазина — продажи, выручка, новые покупатели и хит "
+            "недели (днём, с 10 до 21).\n\n"
             f"<b>Напоминания</b> владельцам магазинов с пробным или тарифом на срок: за <b>{days}</b> дн. до конца, "
             "за 3 часа, в момент выключения и через 1, 3 и 7 дней после. Приходят в личку с ботом (если человек его "
             "запускал) и — если включено — в чаты, куда добавлен конструктор и где этот человек состоит. "
@@ -665,8 +675,28 @@ async def remind_view(target, prefix=""):
     await render(target, text, kb([
         [B(f"🔔 Напоминания: {_onoff(rem)}", "ca:remt:remind"), B(f"🔁 Автопокупка: {_onoff(ab)}", "ca:remt:autobuy")],
         [B(f"💬 Напоминать и в чатах: {_onoff(rg)}", "ca:remt:remind_groups")],
+        [B(f"🎁 Скидка последнего дня: {_onoff(ld)}", "ca:remt:lastday"),
+         B(f"✏️ −{retention.lastday_pct()}% / {retention.lastday_hours()} ч", "ca:lpct")],
+        [B(f"📊 Еженедельный отчёт: {_onoff(wk)}", "ca:remt:weekly")],
         back(),
     ]))
+
+
+@router.callback_query(F.data == "ca:lpct")
+async def cb_lastday_pct(call: CallbackQuery):
+    await ask(call, "x_lpct", "🎁 Скидка последнего дня: отправьте <b>процент и часы</b> через пробел, "
+                              "например <code>20 24</code> (−20% на 24 часа).", cancel="ca:rem")
+
+
+async def in_lastday_pct(m, w, txt, finish, bot):
+    nums = [int(x) for x in re.findall(r"\d+", txt)]
+    if not nums or not 1 <= nums[0] <= 90 or (len(nums) > 1 and not 1 <= nums[1] <= 72):
+        return await m.answer("Нужно: процент 1–90 и часы 1–72, например <code>20 24</code>:")
+    core.put("lastday_pct", nums[0])
+    if len(nums) > 1:
+        core.put("lastday_hours", nums[1])
+    finish()
+    await remind_view(m, "✅ Сохранено.\n\n")
 
 
 # ======================= чаты: автоответы =======================
@@ -676,9 +706,12 @@ async def groups_view(target, prefix=""):
     gs = groups.active_groups()
     lines = "\n".join(f"• {html.escape(g['title'] or str(g['chat_id']))}" for g in gs[:20]) or "<i>пока ни одного</i>"
     me = core.get("username") or "бота"
+    from ctor import ai
     kick = core.flag_on("kick_expired")
     out_now = db.val("SELECT COUNT(DISTINCT user_id) FROM ctor_kicks WHERE restored IS NULL") or 0
+    ai_state = ("нет ключа" if not ai.key() else _onoff(core.flag_on("ai")))
     text = (f"{prefix}💬 <b>Конструктор в чатах</b>\n\n<blockquote>🤖 Автоответы на вопросы: <b>{_onoff(on)}</b>\n"
+            f"🧠 Нейросеть: <b>{ai_state}</b> · модель <code>{html.escape(ai.model())}</code>\n"
             f"🔔 Напоминания в чаты: <b>{_onoff(core.flag_on('remind_groups'))}</b>\n"
             f"🚪 Удалять, когда кончилась подписка: <b>{_onoff(kick)}</b> · сейчас удалено: {out_now}</blockquote>\n\n"
             f"<b>Чаты с ботом ({len(gs)}):</b>\n{lines}\n\n"
@@ -690,13 +723,49 @@ async def groups_view(target, prefix=""):
             "🚪 <b>Доступ по подписке:</b> когда у владельца магазина кончается срок (пробный, Start, Medium) и других "
             "действующих магазинов нет, бот удаляет его из чатов и пишет в личку «продли — вернёшься». После продления "
             "сам снимает блокировку и присылает одноразовую ссылку. Владельцев «навсегда» (Pro, VIP) и админов чата "
-            "не трогает. Для этого у бота в чате должно быть право <b>блокировать участников</b>.")
+            "не трогает. Для этого у бота в чате должно быть право <b>блокировать участников</b>.\n\n"
+            "🧠 <b>Нейросеть</b> понимает вопросы, сформулированные как угодно, и отвечает по справочнику и FAQ. "
+            "Нужен бесплатный ключ Groq: console.groq.com → API Keys → Create. Без ключа бот отвечает только "
+            "по ключевым словам.")
     await render(target, text, kb([
         [B(f"🤖 Автоответы: {_onoff(on)}", "ca:remt:group_help")],
         [B(f"🔔 Напоминания в чаты: {_onoff(core.flag_on('remind_groups'))}", "ca:remt:remind_groups_g")],
         [B(f"🚪 Удалять без подписки: {_onoff(kick)}", "ca:remt:kick_expired")],
+        [B("🧠 Ключ нейросети" + (" ✅" if ai.key() else ""), "ca:aik", style="primary")]
+        + ([B(f"🧠 Нейросеть: {_onoff(core.flag_on('ai'))}", "ca:remt:ai")] if ai.key() else []),
         back(),
     ]))
+
+
+@router.callback_query(F.data == "ca:aik")
+async def cb_ai_key(call: CallbackQuery):
+    await ask(call, "x_aikey", "🧠 Отправьте ключ Groq (начинается с <code>gsk_</code>). Взять бесплатно: "
+                               "console.groq.com → API Keys → Create API Key.\n\nСообщение с ключом я сразу удалю. "
+                               "Чтобы убрать ключ — отправьте <code>-</code>.", cancel="ca:grp")
+
+
+async def in_ai_key(m, w, txt, finish, bot):
+    from ctor import ai
+    try:
+        await m.delete()  # ключ не должен висеть в переписке
+    except Exception:
+        pass
+    val = txt.strip()
+    if val == "-":
+        core.put("ai_key", None)
+        finish()
+        return await groups_view(m, "🗑 Ключ удалён — бот отвечает по ключевым словам.\n\n")
+    if not re.fullmatch(r"gsk_[A-Za-z0-9]{20,}", val):
+        return await m.answer("Это не похоже на ключ Groq (он начинается с gsk_). Пришлите ещё раз:")
+    err = await ai.check_key(val)
+    if err:
+        return await m.answer(f"⚠️ Groq не принял ключ: <code>{html.escape(err)}</code>\nПришлите другой:")
+    core.put("ai_key", val)
+    finish()
+    await groups_view(m, "✅ Ключ проверен и сохранён — нейросеть отвечает в чатах.\n\n")
+
+
+EXTRA.update({"x_lpct": in_lastday_pct, "x_aikey": in_ai_key})
 
 
 @router.callback_query(F.data == "ca:grp")
@@ -714,9 +783,9 @@ async def cb_remind(call: CallbackQuery):
 @router.callback_query(F.data.startswith("ca:remt:"))
 async def cb_remind_toggle(call: CallbackQuery):
     key = call.data[8:]
-    from_groups = key in ("group_help", "remind_groups_g", "kick_expired")  # экран «💬 Конструктор в чатах»
+    from_groups = key in ("group_help", "remind_groups_g", "kick_expired", "ai")  # экран «💬 Конструктор в чатах»
     key = {"remind_groups_g": "remind_groups"}.get(key, key)
-    if key in ("remind", "autobuy", "remind_groups", "group_help", "kick_expired"):
+    if key in ("remind", "autobuy", "remind_groups", "group_help", "kick_expired", "lastday", "weekly", "ai"):
         core.put(key, "1" if not core.flag_on(key) else "0")
     await (groups_view(call) if from_groups else remind_view(call))
     await call.answer("Готово")
