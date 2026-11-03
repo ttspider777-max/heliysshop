@@ -303,6 +303,7 @@ async def cb_btn_reset(call: CallbackQuery):
 # ======================= тексты =======================
 BOT_KEYS = [k for k in core.TEXTS if not k.startswith("app_") and k != "welcome"]
 APP_KEYS = list(core.APP_TEXTS)
+CARD_KEYS = ("app_title", "app_sub", "app_badge")  # открываются прямо из «📱 Мини-приложение»
 PAGE = 8
 
 
@@ -349,7 +350,7 @@ async def text_view(target, key, prefix=""):
     rows = [[B("✏️ Изменить", f"ca:te:{key}", style="primary")]]
     if own is not None:
         rows.append([B("↩️ Вернуть стандартный", f"ca:tr:{key}")])
-    rows.append(back("ca:atx:0" if is_app else "ca:txl:0"))
+    rows.append(back("ca:app" if key in CARD_KEYS else "ca:atx:0" if is_app else "ca:txl:0"))
     try:
         await render(target, text, kb(rows))
     except Exception:  # сломанный HTML в старом тексте — показываем без разметки
@@ -386,13 +387,16 @@ async def app_view(target, prefix=""):
     url = cbot.app_url()
     season = core.get("app_season", "none")
     text = (f"{prefix}📱 <b>Мини-приложение конструктора</b>\n\n<blockquote>"
+            f"🏷 Название карточки: {core.tx('app_title')}\n"
             f"🎨 Цвет: <code>{html.escape(core.get('app_accent') or '#8b5cf6')}</code>\n"
             f"🎭 Стиль: {appcfg.SEASONS.get(season, appcfg.SEASONS['none'])[0]}\n"
             f"🖼 Фон карточки: {'есть' if core.get('app_bg') else 'нет'}\n"
             f"🔗 Адрес: {html.escape(url or 'нет (нужен https-адрес сайта в основном боте)')}</blockquote>\n\n"
             "Тексты и иконки мини-приложения поддерживают <b>премиум-эмодзи</b> — в приложении они анимированные.")
     rows = [
-        [B("📝 Тексты", "ca:atx:0", style="primary"), B("💎 Иконки", "ca:icl")],
+        [B("🏷 Название карточки", "ca:t:app_title", style="success")],
+        [B("💬 Подзаголовок", "ca:t:app_sub"), B("🔖 Бейдж", "ca:t:app_badge")],
+        [B("📝 Все тексты", "ca:atx:0", style="primary"), B("💎 Иконки", "ca:icl")],
         [B("🎨 Цвет", "ca:v:app_accent"), B("🎭 Стиль", "ca:asty")],
         [B("🖼 Фон карточки", "ca:abg")],
     ]

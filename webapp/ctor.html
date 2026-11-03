@@ -44,7 +44,8 @@ input, textarea { font: inherit; color: inherit; }
 .hero-media img, .hero-media video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .hero::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, rgba(0,0,0,.45) 0%, rgba(0,0,0,0) 36%, rgba(0,0,0,0) 50%, rgba(0,0,0,.72) 100%); }
 .hero-top { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; }
-.hero-title { font: 700 19px/1.15 var(--display); letter-spacing: -.01em; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hero-title { font: 700 18px/1.18 var(--display); letter-spacing: -.01em; flex: 1; min-width: 0; overflow: hidden; overflow-wrap: break-word;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .hero-sub { position: relative; z-index: 1; margin-top: 6px; font-size: 13.5px; color: rgba(255,255,255,.78); max-width: 34ch; }
 .badge { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 6px; border-radius: 999px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.14); font-weight: 700; font-size: 13px; white-space: nowrap; }
 .badge .bi { width: 22px; height: 22px; display: grid; place-items: center; font-size: 17px; }
