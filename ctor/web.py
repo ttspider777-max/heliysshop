@@ -146,6 +146,8 @@ async def boot(request):
     season = core.get("app_season", "none")
     if season not in appcfg.SEASONS:
         season = "none"
+    if appcfg.ny_on() and season not in ("newyear", "winter"):
+        season = "newyear"
     data = {
         "ok": True,
         "app": {
@@ -305,14 +307,18 @@ async def chat(request):
 
 
 async def page(request):
+    from web import with_ny
     with open(PAGE, encoding="utf-8") as f:
-        body = f.read()
+        body = with_ny(f.read())
     return web.Response(text=body, content_type="text/html", charset="utf-8", headers={"Cache-Control": "no-cache"})
 
 
 def setup(app):
     app.router.add_get("/c/app", page)
     app.router.add_get("/c/app/", page)
+    from web import ny_js
+    app.router.add_get("/c/ny.js", ny_js)
+    app.router.add_get("/c/app/ny.js", ny_js)
     app.router.add_get("/c/api/boot", boot)
     app.router.add_post("/c/api/draft", save_draft)
     app.router.add_post("/c/api/topup", topup)

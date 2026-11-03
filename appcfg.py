@@ -30,6 +30,33 @@ def season():
     return s if s in SEASONS else "none"
 
 
+_ny = {"at": 0.0, "on": False}
+
+
+def ny_on():
+    """Новогодняя тема мини-приложения (кот в шапке, снег, гирлянда). Включается в /admin бота-конструктора
+    и действует на сам конструктор и на все магазины, созданные через него."""
+    if config.CTOR_MODE:
+        return db.get_setting("c:ny") != "0"
+    main = getattr(config, "MAIN_DB", "")
+    if not (config.CHILD and main):
+        return False
+    import sqlite3
+    import time
+    if time.time() - _ny["at"] > 30:  # базу конструктора читаем не чаще раза в 30 секунд
+        _ny["at"] = time.time()
+        try:
+            con = sqlite3.connect(f"file:{main}?mode=ro", uri=True, timeout=2)
+            try:
+                r = con.execute("SELECT value FROM settings WHERE key='c:ny'").fetchone()
+            finally:
+                con.close()
+            _ny["on"] = bool(r) and r[0] != "0"
+        except Exception:
+            pass  # база недоступна — оставляем прошлое значение
+    return _ny["on"]
+
+
 def badge(lang="ru", s=None):
     """Текст бейджа сезона на карточке (у каждого сезона админ может задать свой)."""
     s = s or season()

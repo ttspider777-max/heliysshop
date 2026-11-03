@@ -448,6 +448,8 @@ async def api_boot(request):
     sup = db.suppliers_cid()
     cats = [cat_block(c) for c in db.categories() if c["id"] != sup and db.count_in_category(c["id"])]
     s = appcfg.season()
+    if appcfg.ny_on() and s not in ("newyear", "winter"):
+        s = "newyear"  # новогодняя тема от конструктора: снег на карточке вместо летучих мышей и листьев
     shop = {
         # название и бейдж — HTML с премиум-эмодзи (очищенный), title_plain — для заголовка вкладки
         "title": sanitize(appcfg.card_title()), "title_plain": re.sub(r"<[^>]+>", "", appcfg.card_title()),
@@ -914,10 +916,25 @@ async def api_admin_pack_del(request):
 
 
 # ======================= мини-приложение и боты клиентов =======================
+NY_JS = os.path.join(STATIC, "ny.js")
+
+
+def with_ny(body):
+    """Подключает новогоднюю тему (webapp/ny.js), если она включена в конструкторе."""
+    if appcfg.ny_on():
+        body = body.replace("</body>", '<script src="ny.js?v=1" defer></script>\n</body>', 1)
+    return body
+
+
+async def ny_js(request):
+    return web.FileResponse(NY_JS, headers={"Cache-Control": "public, max-age=600",
+                                            "Content-Type": "application/javascript; charset=utf-8"})
+
+
 async def app_page(request):
     path = os.path.join(STATIC, "index.html")
     with open(path, encoding="utf-8") as f:
-        body = f.read()
+        body = with_ny(f.read())
     return web.Response(text=body, content_type="text/html", charset="utf-8",
                         headers={"Cache-Control": "no-cache"})
 
@@ -964,6 +981,8 @@ async def start(bot=None):
     app.router.add_get("/health", health)
     app.router.add_get("/app", app_page)
     app.router.add_get("/app/", app_page)
+    app.router.add_get("/ny.js", ny_js)
+    app.router.add_get("/app/ny.js", ny_js)
     app.router.add_get("/{name:privacy|terms}", page)
     app.router.add_get("/m/{sig}/{fid}", tg_media)
     app.router.add_get("/ef/{name}", emoji_file)

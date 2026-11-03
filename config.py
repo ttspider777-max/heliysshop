@@ -65,6 +65,8 @@ if CHILD:
     CTOR_URL = str(c.get("ctor_url") or "")
     # покупатель конструктора выбрал бота без мини-приложения: каталог и покупка кнопками в чате
     NO_APP = bool(c.get("no_app"))
+    # база бота-конструктора (только чтение): общие для всех его магазинов настройки, например новогодняя тема
+    MAIN_DB = str(c.get("main_db") or "")
     # защита: бот клиента работает только со своим токеном и своей базой
     _tok_id = BOT_TOKEN.split(":", 1)[0]
     if not _tok_id.isdigit() or int(_tok_id) != EXPECT_BOT_ID or int(_tok_id) == MAIN_BOT_ID:

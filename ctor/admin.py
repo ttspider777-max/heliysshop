@@ -136,6 +136,8 @@ async def home(target, prefix=""):
            else "🙈 Скрыть «Создать своего бота» во всех магазинах", "ca:mkall")],
         [B(f"👥 Пользователи ({users})", "ca:ul:0", style="primary"), B("📢 Рассылка", "ca:bc")],
         [B(f"📣 Обязательная подписка ({len(db.channels())})", "ca:subs")],
+        [B("🎄 Новогодняя тема: ВКЛ — выключить" if core.flag_on("ny") else "🎄 Включить новогоднюю тему", "ca:ny",
+           style="success" if core.flag_on("ny") else None)],
         [B("🛠 Техработы: ВКЛ — выключить" if core.get("maint") == "1" else "🛠 Включить техработы", "ca:maint",
            style="danger" if core.get("maint") == "1" else None)],
         [B("🏠 Меню конструктора", "c:menu")],
@@ -1181,6 +1183,16 @@ async def cb_user_msg(call: CallbackQuery):
     uid = int(call.data[6:])
     await ask(call, "umsg", "✉️ Отправьте сообщение для пользователя — текст, фото, видео или файл. Он получит его от "
                             "бота-конструктора.", cancel=f"ca:u:{uid}", uid=uid)
+
+
+@router.callback_query(F.data == "ca:ny")
+async def cb_ny(call: CallbackQuery):
+    on = core.flag_on("ny")
+    core.put("ny", "0" if on else "1")
+    await home(call, "✅ Новогодняя тема выключена в конструкторе и во всех магазинах (магазины подхватят за минуту).\n\n"
+               if on else "🎄 Новогодняя тема включена: кот в шапке Деда Мороза при входе, снег, гирлянда — в "
+               "мини-приложении конструктора и всех созданных магазинов (магазины подхватят за минуту).\n\n")
+    await call.answer("Готово")
 
 
 @router.callback_query(F.data == "ca:maint")
