@@ -922,13 +922,25 @@ NY_JS = os.path.join(STATIC, "ny.js")
 def with_ny(body):
     """Подключает новогоднюю тему (webapp/ny.js), если она включена в конструкторе."""
     if appcfg.ny_on():
-        body = body.replace("</body>", '<script src="ny.js?v=1" defer></script>\n</body>', 1)
+        body = body.replace("</body>", '<script src="ny.js?v=2" defer></script>\n</body>', 1)
     return body
 
 
 async def ny_js(request):
     return web.FileResponse(NY_JS, headers={"Cache-Control": "public, max-age=600",
                                             "Content-Type": "application/javascript; charset=utf-8"})
+
+
+async def ny_asset(request):
+    """Картинки новогодней темы из webapp/ny/ (кот с аватарки)."""
+    name = request.match_info["name"]
+    if not re.fullmatch(r"[a-z0-9_-]{1,40}\.(webp|png)", name):
+        raise web.HTTPNotFound()
+    path = os.path.join(STATIC, "ny", name)
+    if not os.path.isfile(path):
+        raise web.HTTPNotFound()
+    ctype = "image/webp" if name.endswith(".webp") else "image/png"
+    return web.FileResponse(path, headers={"Cache-Control": "public, max-age=86400", "Content-Type": ctype})
 
 
 async def app_page(request):
@@ -983,6 +995,8 @@ async def start(bot=None):
     app.router.add_get("/app/", app_page)
     app.router.add_get("/ny.js", ny_js)
     app.router.add_get("/app/ny.js", ny_js)
+    app.router.add_get("/ny/{name}", ny_asset)
+    app.router.add_get("/app/ny/{name}", ny_asset)
     app.router.add_get("/{name:privacy|terms}", page)
     app.router.add_get("/m/{sig}/{fid}", tg_media)
     app.router.add_get("/ef/{name}", emoji_file)

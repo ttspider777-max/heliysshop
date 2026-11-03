@@ -316,9 +316,11 @@ async def page(request):
 def setup(app):
     app.router.add_get("/c/app", page)
     app.router.add_get("/c/app/", page)
-    from web import ny_js
+    from web import ny_asset, ny_js
     app.router.add_get("/c/ny.js", ny_js)
     app.router.add_get("/c/app/ny.js", ny_js)
+    app.router.add_get("/c/ny/{name}", ny_asset)
+    app.router.add_get("/c/app/ny/{name}", ny_asset)
     app.router.add_get("/c/api/boot", boot)
     app.router.add_post("/c/api/draft", save_draft)
     app.router.add_post("/c/api/topup", topup)

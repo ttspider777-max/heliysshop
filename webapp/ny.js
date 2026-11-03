@@ -25,43 +25,80 @@
   }
   function plural(n, a, b, c) { n = Math.abs(n) % 100; const k = n % 10; return n > 10 && n < 20 ? c : k > 1 && k < 5 ? b : k === 1 ? a : c; }
 
-  /* ---------- кот (тот же силуэт, что на аватарке Heliys) в шапке Деда Мороза и шарфе ----------
-     part: "all" — целиком, "body" — без лапок, "paws" — только лапки (чтобы лапки лежали поверх карточки) */
-  function cat(part = "all") {
-    const i = ++uid, body = part !== "paws", paws = part !== "body";
-    const defs = `<defs>
-      <radialGradient id="nyF${i}" cx="50%" cy="30%" r="75%"><stop offset="0" stop-color="#2a2a34"/><stop offset=".55" stop-color="#101016"/><stop offset="1" stop-color="#040406"/></radialGradient>
-      <linearGradient id="nyH${i}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff5a5f"/><stop offset=".55" stop-color="#e3172b"/><stop offset="1" stop-color="#9c0d1d"/></linearGradient>
-      <linearGradient id="nyW${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#d6e4f5"/></linearGradient>
-      <pattern id="nyS${i}" width="16" height="16" patternUnits="userSpaceOnUse" patternTransform="rotate(-35)"><rect width="16" height="16" fill="#e3172b"/><rect width="5" height="16" fill="#fff"/></pattern>
-      <filter id="nyG${i}" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="4"/></filter>
-    </defs>`;
-    const B = "M34 98C29 80 30 52 38 26c2-6 8-7 12-3l34 33c11-3 21-3 32 0l34-33c4-4 10-3 12 3 8 26 9 54 4 72 12 20 16 44 14 94H20c-2-50 2-74 14-94z";
-    const out = [];
-    if (body) out.push(`
-      <path d="${B}" fill="none" stroke="#fff" stroke-width="7" opacity=".45" filter="url(#nyG${i})"/>
-      <path d="${B}" fill="url(#nyF${i})" stroke="#fff" stroke-width="3" stroke-linejoin="round"/>
-      <path d="M44 34l26 25-22 6zM156 34l-26 25 22 6z" fill="#23232c"/>
-      <g class="ny-eyes"><ellipse cx="76" cy="128" rx="9.5" ry="14.5" fill="#fff"/><ellipse cx="124" cy="128" rx="9.5" ry="14.5" fill="#fff"/></g>
-      <ellipse cx="60" cy="150" rx="10" ry="5" fill="#ff6b8a" opacity=".38"/><ellipse cx="140" cy="150" rx="10" ry="5" fill="#ff6b8a" opacity=".38"/>
-      <path d="M22 162c50 14 106 14 156 0l3 20c-52 15-110 15-162 0z" fill="url(#nyS${i})" stroke="#fff" stroke-width="1.5" opacity=".97"/>
-      <path d="M46 170l-9 22 17 2 6-21z" fill="url(#nyS${i})" stroke="#fff" stroke-width="1.5"/>
-      <g class="ny-hat"><g transform="rotate(-9 100 64)">
-        <path d="M60 68C64 32 90 8 118 9c22 1 38 16 42 36l-9 4c-4-11-13-18-25-17 7 10 12 22 15 36z" fill="url(#nyH${i})"/>
-        <path d="M118 9c22 1 38 16 42 36l-9 4c-4-11-13-18-25-17-4-6-9-12-14-16z" fill="#000" opacity=".14"/>
-        <g class="ny-pom"><circle cx="157" cy="52" r="11" fill="url(#nyW${i})"/><circle cx="153" cy="48" r="4" fill="#fff"/></g>
-        <rect x="48" y="58" width="104" height="22" rx="11" fill="url(#nyW${i})"/>
-        <g fill="#fff"><circle cx="58" cy="60" r="5"/><circle cx="74" cy="58" r="5.5"/><circle cx="92" cy="57" r="5.5"/><circle cx="110" cy="57" r="5.5"/><circle cx="128" cy="58" r="5.5"/><circle cx="143" cy="60" r="5"/></g>
-      </g></g>`);
-    if (paws) out.push(`<g class="ny-pw">
-      <path d="M44 194c0-14 10-22 22-22s22 8 22 22z" fill="url(#nyF${i})" stroke="#fff" stroke-width="3" stroke-linejoin="round"/>
-      <path d="M112 194c0-14 10-22 22-22s22 8 22 22z" fill="url(#nyF${i})" stroke="#fff" stroke-width="3" stroke-linejoin="round"/>
-      <path d="M59 184v8M73 184v8M127 184v8M141 184v8" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></g>`);
-    return `<svg class="ny-cat ny-${part}" viewBox="0 0 200 196" aria-hidden="true">${defs}${out.join("")}</svg>`;
+  /* ---------- кот: настоящий кот с аватарки Heliys (webapp/ny/cat.webp, вырезан без надписи и фона)
+     + шапка Деда Мороза поверх: бархат с текстурой ткани и складками, объёмный мех (шум + освещение),
+     снег на лапках и веки, которые моргают поверх настоящих глаз.
+     Ничего с фильтрами не анимируется постоянно — на телефонах это дорого. ---------- */
+  const BASE = new URL(".", (document.currentScript && document.currentScript.src) || location.href).href;
+  const CAT_IMG = BASE + "ny/cat.webp";
+  function cat() {
+    const i = ++uid, f = (n) => `ny${n}${i}`;
+    return `<svg class="ny-cat" viewBox="0 0 1100 740" aria-hidden="true"><defs>
+      <linearGradient id="${f("v")}" x1="0" y1="0" x2="1" y2=".35">
+        <stop offset="0" stop-color="#4a0510"/><stop offset=".1" stop-color="#7d0a18"/><stop offset=".22" stop-color="#b3101f"/>
+        <stop offset=".34" stop-color="#e01f33"/><stop offset=".42" stop-color="#ff4256"/><stop offset=".5" stop-color="#e8273b"/>
+        <stop offset=".62" stop-color="#c0142a"/><stop offset=".74" stop-color="#9a0d20"/><stop offset=".86" stop-color="#730917"/><stop offset="1" stop-color="#4d0510"/></linearGradient>
+      <linearGradient id="${f("w")}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#ffffff"/><stop offset=".45" stop-color="#f4f7fb"/><stop offset=".8" stop-color="#d3dfec"/><stop offset="1" stop-color="#a9bdd3"/></linearGradient>
+      <radialGradient id="${f("p")}" cx="38%" cy="32%" r="70%">
+        <stop offset="0" stop-color="#ffffff"/><stop offset=".55" stop-color="#eef3f9"/><stop offset=".85" stop-color="#c6d5e6"/><stop offset="1" stop-color="#93abc6"/></radialGradient>
+      <radialGradient id="${f("s")}" cx="50%" cy="20%" r="80%">
+        <stop offset="0" stop-color="#ffffff"/><stop offset=".6" stop-color="#e9f1fa"/><stop offset="1" stop-color="#a8c3e0"/></radialGradient>
+      <filter id="${f("fur")}" x="-25%" y="-40%" width="150%" height="180%" color-interpolation-filters="sRGB">
+        <feTurbulence type="fractalNoise" baseFrequency=".032" numOctaves="4" seed="${3 + i}" result="n"/>
+        <feDisplacementMap in="SourceGraphic" in2="n" scale="40" xChannelSelector="R" yChannelSelector="G" result="d"/>
+        <feTurbulence type="fractalNoise" baseFrequency=".13 .07" numOctaves="4" seed="${9 + i}" result="fine"/>
+        <feDiffuseLighting in="fine" surfaceScale="1.4" diffuseConstant="1.3" lighting-color="#fff" result="lit"><feDistantLight azimuth="235" elevation="64"/></feDiffuseLighting>
+        <feGaussianBlur in="lit" stdDeviation=".8" result="soft"/>
+        <feComposite in="soft" in2="d" operator="in" result="tex"/>
+        <feBlend in="tex" in2="d" mode="multiply" result="m"/>
+        <feGaussianBlur in="m" stdDeviation=".6" result="mb"/>
+        <feDropShadow in="mb" dx="0" dy="12" stdDeviation="12" flood-color="#000" flood-opacity=".5"/></filter>
+      <filter id="${f("vel")}" x="-5%" y="-5%" width="110%" height="110%" color-interpolation-filters="sRGB">
+        <feTurbulence type="fractalNoise" baseFrequency=".7" numOctaves="2" seed="${5 + i}" result="n"/>
+        <feColorMatrix in="n" type="matrix" values=".33 .33 .33 0 0  .33 .33 .33 0 0  .33 .33 .33 0 0  0 0 0 0 1" result="g"/>
+        <feComponentTransfer in="g" result="gt"><feFuncR type="linear" slope=".3" intercept=".78"/><feFuncG type="linear" slope=".3" intercept=".78"/><feFuncB type="linear" slope=".3" intercept=".78"/></feComponentTransfer>
+        <feBlend in="SourceGraphic" in2="gt" mode="multiply" result="b"/>
+        <feComposite in="b" in2="SourceGraphic" operator="in"/></filter>
+      <filter id="${f("bl")}" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="14"/></filter>
+      <filter id="${f("bs")}" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="5"/></filter>
+      <clipPath id="${f("c")}"><path d="M375 120C380 20 430-120 560-175c120-50 270 25 345 135l20 35c-45-35-105-85-165-90-25 55-20 145-15 215z"/></clipPath>
+      <clipPath id="${f("el")}"><ellipse cx="332" cy="370" rx="47" ry="72" transform="rotate(-4 332 370)"/></clipPath>
+      <clipPath id="${f("er")}"><ellipse cx="697" cy="395" rx="44" ry="67" transform="rotate(4 697 395)"/></clipPath>
+    </defs>
+    <g transform="translate(20 245)">
+      <image href="${CAT_IMG}" x="0" y="0" width="1058" height="492"/>
+      <g class="ny-lid"><rect x="270" y="280" width="130" height="170" fill="#030303" clip-path="url(#${f("el")})"/><rect x="640" y="310" width="120" height="160" fill="#030303" clip-path="url(#${f("er")})"/></g>
+      <g transform="rotate(8 555 150)">
+        <ellipse cx="560" cy="165" rx="230" ry="38" fill="#000" opacity=".55" filter="url(#${f("bl")})"/>
+        <g clip-path="url(#${f("c")})">
+          <rect x="360" y="-240" width="600" height="380" fill="url(#${f("v")})" filter="url(#${f("vel")})"/>
+          <path d="M760-95c60 5 120 55 165 90-50-20-110-45-160-45z" fill="#3a030b" opacity=".75" filter="url(#${f("bs")})"/>
+          <path d="M760-95c-25 55-20 145-15 215l-60 0c10-70 20-150 75-215z" fill="#3a030b" opacity=".45" filter="url(#${f("bl")})"/>
+          <path d="M430 60c10-80 50-170 120-215" stroke="#ff8a96" stroke-width="26" stroke-linecap="round" fill="none" opacity=".35" filter="url(#${f("bl")})"/>
+          <path d="M520 110c15-90 60-170 150-230M610 110c20-70 70-130 140-170" stroke="#4a0510" stroke-width="10" stroke-linecap="round" fill="none" opacity=".45" filter="url(#${f("bs")})"/>
+          <path d="M600-180c90-20 190 30 280 120" stroke="#ff9aa5" stroke-width="12" stroke-linecap="round" fill="none" opacity=".4" filter="url(#${f("bs")})"/>
+        </g>
+        <path d="M378 110C383 20 432-118 560-173c118-48 262 22 340 128" stroke="#dbe9ff" stroke-width="5" fill="none" stroke-linecap="round" opacity=".55" filter="url(#${f("bs")})"/>
+        <rect x="325" y="92" width="465" height="112" rx="56" fill="url(#${f("w")})" filter="url(#${f("fur")})"/>
+        <circle cx="930" cy="10" r="64" fill="url(#${f("p")})" filter="url(#${f("fur")})"/>
+      </g>
+      <path d="M48 440c6-34 44-52 96-52s100 14 112 50z" fill="url(#${f("s")})" filter="url(#${f("fur")})"/>
+      <path d="M818 462c6-32 42-48 92-48s96 14 108 48z" fill="url(#${f("s")})" filter="url(#${f("fur")})"/>
+    </g></svg>`;
   }
 
   const SPARK = `<svg viewBox="0 0 24 24"><path d="M12 0c.6 6.3 5.7 11.4 12 12-6.3.6-11.4 5.7-12 12-.6-6.3-5.7-11.4-12-12C6.3 11.4 11.4 6.3 12 0z" fill="currentColor"/></svg>`;
-  const GIFT = (c1, c2) => `<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="6" y="24" width="52" height="36" rx="5" fill="${c1}"/><rect x="2" y="16" width="60" height="12" rx="4" fill="${c1}" style="filter:brightness(1.15)"/><rect x="27" y="16" width="10" height="44" fill="${c2}"/><path d="M32 16c-6-12-20-12-18-3 1 5 11 4 18 3zm0 0c6-12 20-12 18-3-1 5-11 4-18 3z" fill="none" stroke="${c2}" stroke-width="4.5" stroke-linejoin="round"/></svg>`;
+  const GIFT = (c1, c2) => { const g = "nyg" + (++uid); return `<svg viewBox="0 0 64 64" aria-hidden="true"><defs>
+    <linearGradient id="${g}a" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".38"/></linearGradient>
+    <linearGradient id="${g}b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity=".35"/><stop offset=".3" stop-color="#000" stop-opacity="0"/></linearGradient></defs>
+    <rect x="6" y="24" width="52" height="36" rx="4" fill="${c1}"/><rect x="6" y="24" width="52" height="36" rx="4" fill="url(#${g}a)"/><rect x="6" y="24" width="52" height="36" rx="4" fill="url(#${g}b)"/>
+    <rect x="27" y="24" width="10" height="36" fill="${c2}"/><rect x="27" y="24" width="10" height="36" fill="url(#${g}a)"/>
+    <rect x="2" y="15" width="60" height="12" rx="3" fill="${c1}" style="filter:brightness(1.12)"/><rect x="2" y="15" width="60" height="12" rx="3" fill="url(#${g}a)"/>
+    <rect x="27" y="15" width="10" height="12" fill="${c2}" style="filter:brightness(1.1)"/>
+    <path d="M32 15c-6-12-20-12-18-3 1 5 11 4 18 3zm0 0c6-12 20-12 18-3-1 5-11 4-18 3z" fill="none" stroke="${c2}" stroke-width="4.5" stroke-linejoin="round"/>
+    <path d="M4 16h56" stroke="#fff" stroke-opacity=".35" stroke-width="1.2"/>
+    <path d="M3 15c4-5 12-6 20-4M41 11c8-2 16-1 20 4" stroke="#fff" stroke-width="3.5" stroke-linecap="round" fill="none" opacity=".9"/></svg>`; };
   const TREE = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l4 6h-2l4 6h-2.5l4.5 6H4l4.5-6H6l4-6H8z" fill="#3ddc84"/><rect x="10.5" y="20" width="3" height="3" rx="1" fill="#a0652f"/><circle cx="12" cy="2.4" r="1.6" fill="#ffd34d"/><circle cx="10" cy="11" r="1" fill="#ff4d5e"/><circle cx="14" cy="16" r="1" fill="#ffd34d"/><circle cx="9" cy="17" r="1" fill="#4fc3ff"/></svg>`;
 
   /* ---------- стили ---------- */
@@ -81,7 +118,7 @@
   #ny-snow { position: fixed; inset: 0; z-index: 15; pointer-events: none; width: 100%; height: 100%; }
 
   /* кот над карточкой */
-  .ny-perch { position: relative; height: 86px; margin: 2px 0 0; display: flex; align-items: center; padding: 0 118px 18px 4px; }
+  .ny-perch { position: relative; height: 92px; display: flex; align-items: center; padding: 0 142px 22px 4px; }
   body.ny .hero { z-index: 1; }
   .ny-perch .ny-hi { min-width: 0; }
   .ny-perch .ny-t { font: 700 16px/1.2 var(--display, sans-serif); letter-spacing: -.01em; background: linear-gradient(100deg, #fff6d8 0%, var(--ny-gold) 35%, #ff9f6b 60%, #fff6d8 100%); background-size: 220% 100%;
@@ -90,17 +127,12 @@
   .ny-perch .ny-s { margin-top: 4px; font-size: 12.5px; font-weight: 600; color: var(--muted, #8e8e96); display: flex; align-items: center; gap: 6px; }
   .ny-perch .ny-s svg { width: 15px; height: 15px; flex: none; }
   @keyframes ny-shine { to { background-position: -220% 0; } }
-  .ny-pc { position: absolute; right: 14px; bottom: -8px; width: 98px; height: 96px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-  .ny-pc .ny-cat { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-  .ny-pc .ny-body { z-index: 0; transform-origin: 50% 100%; animation: ny-breathe 4s ease-in-out infinite; }
-  .ny-pc .ny-paws { z-index: 2; }
-  .ny-pc.jump .ny-body { animation: ny-jump .6s cubic-bezier(.3, 1.6, .5, 1); }
-  @keyframes ny-breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.015, .985); } }
-  @keyframes ny-jump { 0% { transform: translateY(0); } 40% { transform: translateY(-14px) rotate(-3deg); } 100% { transform: none; } }
-  .ny-cat .ny-eyes { transform-box: fill-box; transform-origin: center; animation: ny-blink 5.5s infinite; }
-  @keyframes ny-blink { 0%, 93%, 100% { transform: scaleY(1); } 95.5% { transform: scaleY(.1); } }
-  .ny-cat .ny-pom { transform-box: view-box; transform-origin: 140px 30px; animation: ny-pom 3.2s ease-in-out infinite; }
-  @keyframes ny-pom { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(7deg); } }
+  .ny-pc { position: absolute; z-index: 2; right: 6px; bottom: -3px; width: 140px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .ny-pc .ny-cat { display: block; width: 100%; height: auto; overflow: visible; transform-origin: 50% 100%; filter: drop-shadow(0 -2px 14px rgba(170, 205, 255, .22)); }
+  .ny-pc.jump .ny-cat { animation: ny-jump .7s cubic-bezier(.16, 1, .3, 1); }
+  @keyframes ny-jump { 0% { transform: none; } 35% { transform: translateY(-10px) rotate(-2deg); } 100% { transform: none; } }
+  .ny-cat .ny-lid rect { transform-box: fill-box; transform-origin: 50% 0; transform: scaleY(0); animation: ny-blink 6s infinite; }
+  @keyframes ny-blink { 0%, 94%, 100% { transform: scaleY(0); } 96.5% { transform: scaleY(1); } }
   .ny-burst { position: absolute; z-index: 3; width: 12px; height: 12px; color: var(--ny-gold); pointer-events: none; animation: ny-burst .9s ease-out forwards; }
   .ny-burst svg { width: 100%; height: 100%; display: block; }
   @keyframes ny-burst { from { transform: translate(0, 0) scale(.4); opacity: 1; } to { transform: translate(var(--dx), var(--dy)) scale(1.1) rotate(90deg); opacity: 0; } }
@@ -124,15 +156,15 @@
   .ny-sp { position: absolute; width: 18px; color: #fff; filter: drop-shadow(0 0 6px #fff); animation: ny-tw 2.6s ease-in-out infinite; }
   .ny-sp svg { display: block; width: 100%; }
   .ny-scene { position: relative; z-index: 2; width: min(78vw, 340px); display: flex; flex-direction: column; align-items: center; text-align: center; }
-  .ny-stage { position: relative; width: 100%; aspect-ratio: 1 / .78; }
-  .ny-stage .ny-cat { position: absolute; left: 50%; bottom: 24%; width: 66%; transform: translateX(-50%); overflow: visible; animation: ny-pop 1s cubic-bezier(.2, 1.4, .4, 1) both; filter: drop-shadow(0 0 24px rgba(160, 200, 255, .35)); }
-  @keyframes ny-pop { from { transform: translate(-50%, 40%) scale(.7); opacity: 0; } to { transform: translate(-50%, 0) scale(1); opacity: 1; } }
+  .ny-stage { position: relative; width: 100%; aspect-ratio: 1 / .86; }
+  .ny-stage .ny-cat { position: absolute; left: 50%; bottom: 19%; width: 96%; transform: translateX(-50%); overflow: visible; animation: ny-pop 1.1s cubic-bezier(.16, 1, .3, 1) both; filter: drop-shadow(0 0 28px rgba(160, 200, 255, .28)); }
+  @keyframes ny-pop { from { transform: translate(-50%, 34%); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
   .ny-mound { position: absolute; left: -6%; right: -6%; bottom: 0; height: 34%; }
   .ny-mound svg { width: 100%; height: 100%; display: block; }
-  .ny-gift { position: absolute; bottom: 10%; width: 17%; animation: ny-pop2 .9s .35s cubic-bezier(.2, 1.4, .4, 1) both; }
-  .ny-gift.g1 { left: 6%; } .ny-gift.g2 { right: 7%; width: 14%; animation-delay: .5s; }
+  .ny-gift { position: absolute; bottom: 10%; width: 17%; animation: ny-pop2 .9s .35s cubic-bezier(.16, 1, .3, 1) both; }
+  .ny-gift.g1 { left: -3%; width: 15%; } .ny-gift.g2 { right: -2%; width: 12%; animation-delay: .5s; }
   .ny-gift svg { width: 100%; display: block; filter: drop-shadow(0 6px 10px rgba(0, 0, 0, .45)); }
-  @keyframes ny-pop2 { from { transform: translateY(30px) scale(.6); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes ny-pop2 { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
   .ny-title { margin-top: 18px; font: 700 clamp(24px, 7.4vw, 34px)/1.12 var(--display, "Unbounded", sans-serif); letter-spacing: -.02em;
     background: linear-gradient(100deg, #fff6d8 0%, #ffd36b 30%, #ff9f6b 55%, #fff6d8 100%); background-size: 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
     animation: ny-up .8s .45s ease-out both, ny-shine 4s 1.2s linear infinite; }
@@ -236,7 +268,7 @@
     const el = document.createElement("div");
     el.className = "ny-perch";
     el.innerHTML = `<div class="ny-hi"><div class="ny-t">${w.title}</div><div class="ny-s">${TREE}<span>${w.sub}</span></div></div>
-      <div class="ny-pc" role="img" aria-label="Новогодний кот">${cat("body")}${cat("paws")}</div>`;
+      <div class="ny-pc" role="img" aria-label="Новогодний кот">${cat()}</div>`;
     const pc = el.querySelector(".ny-pc");
     pc.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -245,7 +277,7 @@
       for (let i = 0; i < 8; i++) {
         const s = document.createElement("span"), a = (i / 8) * 6.283;
         s.className = "ny-burst"; s.innerHTML = SPARK;
-        s.style.cssText = `left:${pc.offsetLeft + 44}px;top:${pc.offsetTop + 20}px;--dx:${Math.cos(a) * 46}px;--dy:${Math.sin(a) * 40 - 10}px;color:${BULBS[i % BULBS.length]}`;
+        s.style.cssText = `left:${pc.offsetLeft + 64}px;top:${pc.offsetTop + 12}px;--dx:${Math.cos(a) * 46}px;--dy:${Math.sin(a) * 40 - 10}px;color:${BULBS[i % BULBS.length]}`;
         el.appendChild(s); setTimeout(() => s.remove(), 950);
       }
     });
@@ -253,6 +285,7 @@
   }
 
   /* ---------- заставка при входе ---------- */
+  const catReady = new Promise((res) => { const im = new Image(); im.onload = im.onerror = res; im.src = CAT_IMG; setTimeout(res, 700); });
   function splash() {
     let shown = false;
     try { shown = sessionStorage.getItem("ny-splash") === "1"; sessionStorage.setItem("ny-splash", "1"); } catch (e) {}
@@ -269,7 +302,7 @@
     el.innerHTML = `<i class="ny-aur a1"></i><i class="ny-aur a2"></i>${stars}${sparks}<canvas></canvas>
       <div class="ny-scene">
         <div class="ny-stage">
-          ${cat("all")}
+          ${cat()}
           <div class="ny-mound"><svg viewBox="0 0 300 100" preserveAspectRatio="none"><defs><linearGradient id="nyM" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#9fbde6"/></linearGradient></defs><path d="M0 100C14 70 44 50 84 44c28-4 42 4 68 0s52-12 82-6c34 7 54 30 66 62z" fill="url(#nyM)"/><path d="M48 62c20-8 38-11 58-8M176 42c22 0 42 7 60 18" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".8" fill="none"/></svg></div>
           <div class="ny-gift g1">${GIFT("#e3172b", "#ffd36b")}</div>
           <div class="ny-gift g2">${GIFT("#1fa463", "#ff4d5e")}</div>
@@ -279,17 +312,24 @@
       </div>
       <div class="ny-tap">Нажмите, чтобы войти</div>
       <div class="ny-bar"><i style="--t:${T}ms"></i></div>`;
-    document.body.appendChild(el);
-    const stop = snow(el.querySelector("canvas"), 70, { big: true });
-    let done = false;
-    const close = () => {
-      if (done) return;
-      done = true; haptic("light");
-      el.classList.add("out");
-      setTimeout(() => { stop(); el.remove(); }, 600);
-    };
-    el.addEventListener("click", close);
-    setTimeout(close, T);
+    // пока грузится картинка кота (до 0,7 с) — просто тёмный фон, чтобы анимация появления не прошла впустую
+    const cover = document.createElement("div");
+    cover.className = "ny-splash";
+    document.body.appendChild(cover);
+    catReady.then(() => {
+      document.body.appendChild(el);
+      cover.remove();
+      const stop = snow(el.querySelector("canvas"), 70, { big: true });
+      let done = false;
+      const close = () => {
+        if (done) return;
+        done = true; haptic("light");
+        el.classList.add("out");
+        setTimeout(() => { stop(); el.remove(); }, 600);
+      };
+      el.addEventListener("click", close);
+      setTimeout(close, T);
+    });
   }
 
   /* ---------- запуск ---------- */
@@ -309,5 +349,6 @@
     let rt = 0;
     window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(garland, 150); });
   }
+  window.__heliysNY = { cat };  // для отладки: window.__heliysNY.cat()
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
 })();
