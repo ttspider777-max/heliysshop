@@ -1613,6 +1613,12 @@ SETTINGS["review_url"] = ("💜 Ссылка для отзывов", config.REVI
 SETTINGS["review_user"] = ("👤 Юзернейм в отзыве", config.REVIEW_USER,
                            "Отправьте юзернейм, который покупатель должен указать в отзыве, например @apfov "
                            "(<code>-</code> — не указывать):")
+if config.NO_APP:  # магазин без мини-приложения: ссылки для экрана «🔗 Полезные ссылки»
+    SETTINGS["guarantees_url"] = ("✅ Ссылка «Гарантии»", "", "Отправьте ссылку (https://t.me/...) на гарантии / отзывы-канал "
+                                  "(<code>-</code> — убрать кнопку):")
+    SETTINGS["rules_url"] = ("❗ Ссылка «Правила»", "", "Отправьте ссылку на правила (например Telegraph). Если не задана, "
+                             "кнопка откроет «Пользовательское соглашение» (<code>-</code> — убрать):")
+    SETTINGS["channel_url"] = ("📢 Ссылка «Канал»", "", "Отправьте ссылку или @username вашего канала (<code>-</code> — убрать кнопку):")
 if not config.CHILD:
     SETTINGS["bot_price"] = ("🤖 Цена создания бота", config.BOT_PRICE, "Отправьте цену создания бота в ₽ (например 300):")
     SETTINGS["trial_days"] = ("🎁 Пробный период бота, дней", 3,
@@ -1739,7 +1745,7 @@ async def cb_set(call: CallbackQuery, state: FSMContext):
 @inp("set")
 async def i_set(m, state, d, txt, bot):
     key = d["key"]
-    if key in ("review_url", "review_user") and txt == "-":
+    if key in ("review_url", "review_user", "guarantees_url", "rules_url", "channel_url") and txt == "-":
         value = ""
     elif key == "review_user":
         value = txt if txt.startswith("@") else "@" + txt

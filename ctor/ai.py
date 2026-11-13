@@ -123,6 +123,25 @@ async def ad_posts(title, desc, products, link):
     return [html.escape(p[:1500]) for p in posts[:3]] or None
 
 
+def template_posts(title, desc, products, link):
+    """Рекламные посты без нейросети (запасной вариант, если ключа Groq нет или он не ответил).
+    -> 3 текста, экранированных для HTML. Только факты из данных магазина: без выдуманных гарантий и цифр."""
+    title = (title or "наш магазин").strip()
+    desc = (desc or "").strip()
+    items = [(n, p) for n, p in products[:8]]
+    cheapest = min(items, key=lambda x: x[1]) if items else None
+    lst = "\n".join(f"▫️ {n} — {p:g}₽" for n, p in items[:6])
+    p1 = f"🔥 {title}\n\n" + (f"{desc}\n\n" if desc else "Всё нужное — в одном боте, быстро и без лишних вопросов.\n\n")
+    p1 += (f"Цены от {cheapest[1]:g}₽.\n" if cheapest else "") + f"⚡ Заходи и выбирай: {link}"
+    p2 = f"🛍 {title} — ассортимент и цены\n\n" + (lst + "\n\n" if lst else "Каталог уже в боте — загляни и выбери.\n\n")
+    p2 += f"💳 Оплата прямо в боте, выдача сразу после оплаты.\n👉 {link}"
+    p3 = (f"✨ Ищешь, где купить удобно?\n\n{title} — магазин в Telegram: открываешь бота, выбираешь товар, "
+          f"оплачиваешь — и получаешь.\n" + (f"\n{desc}\n" if desc else "") +
+          ("\n🎁 Начни с " + f"«{cheapest[0]}» за {cheapest[1]:g}₽.\n" if cheapest else "") +
+          f"\n📲 Жми: {link}")
+    return [html.escape(p[:1500]) for p in (p1, p2, p3)]
+
+
 async def answer(question):
     """Ответ нейросети по базе знаний (текст, уже экранирован для HTML).
     "" — нейросеть решила, что вопрос не по теме (молчать); None — нейросеть недоступна."""

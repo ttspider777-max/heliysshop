@@ -26,7 +26,7 @@ import appcfg
 import config
 import db
 import hosting
-from ctor import core
+from ctor import core, kinds
 from ctor.core import bt, money, tx
 from ui import fix_url, kb, media_of, raw_btn, render, send_media
 
@@ -42,10 +42,21 @@ _task = None
 _busy = set()     # кто сейчас создаёт магазин (защита от двойного нажатия)
 _tok_busy = set()
 
-INPUT_STEPS = {"hex", "title", "desc", "welcome", "support", "token", "retoken", "amount", "receipt", "payreceipt",
-               "promo"}
+INPUT_STEPS = {"hex", "title", "desc", "welcome", "support", "token", "retoken", "newtoken", "amount", "receipt",
+               "payreceipt", "promo"}
 _remind_task = None  # напоминания о пробном и автопокупка
 _ab_lock = asyncio.Lock()
+
+
+def kind_ctx(uid, k, bid=0):
+    """Тип бота, о котором речь: k=c — новый (из черновика), k=b / s — существующий бот bid, k=a — дополнение."""
+    if k in ("b", "s") and bid:
+        b = db.hosted(bid)
+        return hosting.kind_of(b) if b else "shop"
+    if k == "c":
+        d, _ = core.draft(uid)
+        return core.kind_of_draft(d) or "shop"
+    return "shop"
 
 
 # ======================= запуск =======================
@@ -322,8 +333,8 @@ def welcome_text(uid):
     trial = (tx("trial_line", days=days_text(), price=pr, min=mn) if trial_free(uid)
              else tx("price_line", price=pr, min=mn))
     bots = len([b for b in db.user_hosted(uid) if b["token"]])
-    return tx("welcome", name=html.escape((u["first_name"] if u else None) or "друг"),
-              balance=money(u["balance"] if u else 0), bots=bots, trial=trial, price=pr, min=mn, days=days_text())
+    return core.ny(tx("welcome", name=html.escape((u["first_name"] if u else None) or "друг"),
+                      balance=money(u["balance"] if u else 0), bots=bots, trial=trial, price=pr, min=mn, days=days_text()))
 
 
 async def show_menu(target, uid):
@@ -482,6 +493,15 @@ def back_row():
 
 
 async def prompt(target, uid, step, d):
+    if step == "kind":
+        on = core.kinds_on()
+        rows = [[raw_btn(kinds.name(k), f"c:kind:{k}")] for k in on]
+        url = app_url()
+        if url:
+            rows.append([B("app", web_app=url + "#create")])
+        rows.append(back_row())
+        lines = "\n".join(f"{kinds.name(k)} — {kinds.desc(k)}" for k in on)
+        return await out(target, tx("step_kind") + f"\n\n<blockquote>{html.escape(lines)}</blockquote>", kb(rows))
     if step == "mode":
         rows = [[B("mode_app", "c:mode:app")], [B("mode_bot", "c:mode:bot")]]
         url = app_url()
@@ -535,22 +555,34 @@ async def prompt(target, uid, step, d):
         return await show_summary(target, uid, d)
 
 
+def pay_line(uid, d, kind):
+    """Строка про оплату в итоге мастера."""
+    if d.get("plan") == "trial" and trial_ok(uid, d):
+        return tx("pay_trial", days=days_text(core.trial_days() + core.promo_days(uid)),
+                  price=money(core.min_tariff_price(kind)), min=money(core.min_tariff_price(kind)))
+    if d.get("plan") in core.TARIFFS and core.tariff_on(d["plan"], kind):
+        amount, _ = core.final_price(uid, d["plan"], kind)
+        return (f"💳 Тариф: <b>{core.tariff_name(d['plan'])}</b> — {core.tariff_period(d['plan'])}\n"
+                + tx("pay_price", price=money(amount), stars=core.stars_for(amount)))
+    amount = core.min_tariff_price(kind)
+    return tx("pay_price", price="от " + money(amount), stars=core.stars_for(amount))
+
+
 def summary_text(uid, d):
     u = core.user(uid)
+    kind = core.kind_of_draft(d) or "shop"
+    if kind != "shop":
+        sup = d.get("support") or ""
+        return (tx("summary") + "\n\n<blockquote>"
+                f"🧩 Тип: <b>{html.escape(kinds.name(kind))}</b>\n"
+                f"🏷 Название: <b>{html.escape(d.get('title') or '—')}</b>\n"
+                f"💬 Поддержка: {html.escape(sup) if sup else 'не указана'}\n"
+                f"🤖 Бот: @{html.escape(d.get('username') or '?')}</blockquote>\n\n" + pay_line(uid, d, kind))
     sup = d.get("support") or ""
     welcome_note = "✅ своё" if d.get("welcome") and not d.get("welcome_default") else "✨ готовое"
     if d.get("wmedia"):
         welcome_note += {"photo": " · с фото", "video": " · с видео", "animation": " · с GIF"}.get(d["wmedia"][0], "")
-    if d.get("plan") == "trial" and trial_ok(uid, d):
-        pay = tx("pay_trial", days=days_text(core.trial_days() + core.promo_days(uid)), price=money(core.price()),
-                 min=money(core.min_tariff_price()))
-    elif d.get("plan") in core.TARIFFS and core.tariff_on(d["plan"]):
-        amount, _ = core.final_price(uid, d["plan"])
-        pay = (f"💳 Тариф: <b>{core.tariff_name(d['plan'])}</b> — {core.tariff_period(d['plan'])}\n"
-               + tx("pay_price", price=money(amount), stars=core.stars_for(amount)))
-    else:
-        amount = core.min_tariff_price()
-        pay = tx("pay_price", price="от " + money(amount), stars=core.stars_for(amount))
+    pay = pay_line(uid, d, "shop")
     tpl = core.template_label(d)
     if d.get("template") and d["template"] != "empty":
         cats, items = core.template_counts(d["template"])
@@ -631,6 +663,20 @@ async def cb_idea(call: CallbackQuery):
     await call.answer()
 
 
+@router.callback_query(F.data.startswith("c:kind:"))
+async def cb_kind(call: CallbackQuery):
+    key = call.data[7:]
+    if key not in kinds.KINDS or not core.kind_on(key):
+        return await call.answer("Этот тип бота сейчас недоступен", show_alert=True)
+    d, _ = core.draft(call.from_user.id)
+    d["kind"] = key
+    if key != "shop":
+        for k in ("mode", "color", "hex", "style", "desc", "template", "welcome", "wmedia", "welcome_default"):
+            d.pop(k, None)
+    await advance(call, call.from_user.id, d)
+    await call.answer(kinds.name(key))
+
+
 @router.callback_query(F.data.startswith("c:mode:"))
 async def cb_mode(call: CallbackQuery):
     mode = call.data[7:]
@@ -674,7 +720,7 @@ async def cb_support_pick(call: CallbackQuery):
 
 
 # ---------- ✏️ изменить ----------
-EDIT_FIELDS = (("mode", "📱 Вид бота"), ("color", "🎨 Цвет"), ("style", "🎭 Стиль"), ("title", "🏷 Заголовок"), ("desc", "📝 Описание"),
+EDIT_FIELDS = (("kind", "🧩 Тип бота"), ("mode", "📱 Вид бота"), ("color", "🎨 Цвет"), ("style", "🎭 Стиль"), ("title", "🏷 Заголовок"), ("desc", "📝 Описание"),
                ("template", "🧩 Набор товаров"), ("welcome", "👋 Приветствие"), ("support", "💬 Поддержка"),
                ("token", "🤖 Бот (токен)"))
 
@@ -682,7 +728,8 @@ EDIT_FIELDS = (("mode", "📱 Вид бота"), ("color", "🎨 Цвет"), ("s
 @router.callback_query(F.data == "c:edit")
 async def cb_edit(call: CallbackQuery):
     d, _ = core.draft(call.from_user.id)
-    fields = [f for f in EDIT_FIELDS if not (core.no_app(d) and f[0] in core.APP_ONLY)]
+    steps = set(core.steps_of(d))
+    fields = [f for f in EDIT_FIELDS if f[0] in steps]
     rows = [[raw_btn(t, f"c:e:{k}") for k, t in fields[i:i + 2]] for i in range(0, len(fields), 2)]
     rows.append([B("restart", "c:reset")])
     rows.append([B("back", "c:sum")])
@@ -695,7 +742,7 @@ async def cb_edit_field(call: CallbackQuery):
     uid = call.from_user.id
     field = call.data[4:]
     d, _ = core.draft(uid)
-    drop = {"color": ("color", "hex"), "token": ("token", "tg_id", "username", "bot_name"),
+    drop = {"color": ("color", "hex"), "token": ("token", "tg_id", "username", "bot_name"), "kind": ("kind",),
             "welcome": ("welcome", "wmedia", "welcome_default")}.get(field, (field,))
     for k in drop:
         d.pop(k, None)
@@ -796,7 +843,7 @@ async def on_step_input(m: Message, bot: Bot):
             return await m.answer("Пришли <code>@username</code> или ссылку (https://…):")
         d["support"] = txt if txt.startswith("@") else url
         return await advance(m, uid, d)
-    if step in ("token", "retoken"):
+    if step in ("token", "retoken", "newtoken"):
         return await on_token(m, d, step)
     if step == "amount":
         return await on_amount(m, txt)
@@ -833,6 +880,8 @@ async def on_token(m: Message, d, step):
             return await wait.edit_text(tx("token_taken"))
         if step == "retoken":
             return await _retoken(wait, uid, d, token, me)
+        if step == "newtoken":
+            return await _swap_token(wait, uid, d, token, me)
         if db.hosted_by_tg(me.id):
             return await wait.edit_text(tx("token_taken"))
         d.update(token=token, tg_id=me.id, username=me.username, bot_name=me.first_name)
@@ -920,41 +969,46 @@ def can_renew(b):
     return bool(b and b["token"] and b["trial_until"])
 
 
-def tariff_desc(key):
-    pr = core.tariff_price(key)
-    start, medium = core.tariff_price("start"), core.tariff_price("medium")
+def tariff_desc(key, kind="shop"):
+    pr = core.tariff_price(key, kind)
+    start, medium = core.tariff_price("start", kind), core.tariff_price("medium", kind)
+    if kind != "shop":  # у остальных типов ботов описание общее: «магазин» тут не подходит
+        return tx("tariff_other", name=core.tariff_name(key), price=money(pr), period=core.tariff_period(key),
+                  bot=html.escape(kinds.name(kind)))
     return tx("tariff_" + key, price=money(pr), month=money(round(pr / 3)),
               save=money(max(round(start * 3 - medium, 2), 0)))
 
 
-def tariffs_text(extra=""):
-    parts = [tx("tariffs_head")] + [tariff_desc(k) for k in core.tariffs_on()]
+def tariffs_text(extra="", kind="shop"):
+    head = tx("tariffs_head") if kind == "shop" else tx("tariffs_head_other", bot=html.escape(kinds.name(kind)))
+    parts = [head] + [tariff_desc(k, kind) for k in core.tariffs_on(kind)]
     text = "\n\n".join(parts) + extra
     if len(core.plain(text)) > 3900:  # не влезает в сообщение — только заголовок и короткие строки
-        text = tx("tariffs_head") + "\n\n" + "\n".join(
-            f"{core.tariff_name(k)} — <b>{money(core.tariff_price(k))}</b> · {core.tariff_period(k)}"
-            for k in core.tariffs_on()) + extra
+        text = head + "\n\n" + "\n".join(
+            f"{core.tariff_name(k)} — <b>{money(core.tariff_price(k, kind))}</b> · {core.tariff_period(k)}"
+            for k in core.tariffs_on(kind)) + extra
     return text
 
 
 async def tariff_view(target, uid, k, bid):
     """Выбор тарифа с подробным описанием. k=c — новый магазин, k=b — продление / покупка для бота bid."""
     d, _ = core.draft(uid)
+    kind = kind_ctx(uid, k, bid)
     rows = []
     if k == "c" and trial_ok(uid, d):
         rows.append([B("trial", "c:trial", text=f"{bt('trial')} — {days_text(core.trial_days() + core.promo_days(uid))}")])
-    for key in core.tariffs_on():
-        amount, _ = core.final_price(uid, key)
+    for key in core.tariffs_on(kind):
+        amount, _ = core.final_price(uid, key, kind)
         rows.append([raw_btn(f"{core.tariff_name(key)} · {money(amount)} · {core.tariff_period(key)}",
-                             f"c:tsel:{k}:{bid}:{key}", style="success" if key == "pro" else None)])
+                             f"c:tsel:{k}:{bid}:{key}", style="success" if key == "medium" else None)])
     rows.append([B("back", "c:sum" if k == "c" else "c:bots")])
     extra = ""
     if k == "b":
         b = db.hosted(bid)
         extra = f"\n\n🤖 @{html.escape((b['username'] if b else '') or '?')} — сейчас: {html.escape(core.plan_line(b))}" if b else ""
-    if not core.tariffs_on():
+    if not core.tariffs_on(kind):
         return await out(target, tx("pay_none"), kb([[B("support", "c:sup")], rows[-1]]))
-    await out(target, tariffs_text(extra), kb(rows))
+    await out(target, tariffs_text(extra, kind), kb(rows))
 
 
 @router.callback_query(F.data.startswith("c:tar:"))
@@ -985,7 +1039,7 @@ async def cb_tariff_pick(call: CallbackQuery):
     d, step = core.draft(uid)
     if step == "promo":
         core.set_step(uid, core.next_step(d) if core.next_step(d) == "confirm" else None)
-    if not core.tariff_on(key):
+    if not core.tariff_on(key, kind_ctx(uid, k, bid)):
         return await call.answer("Этот тариф сейчас недоступен", show_alert=True)
     if k == "c":
         if core.next_step(d) != "confirm":
@@ -1013,16 +1067,19 @@ async def cb_tariffs(call: CallbackQuery):
     await call.answer()
 
 
-def pay_kb(uid, kind, bid=0, item="pro"):
-    k = {"create": "c", "buy": "b", "addon": "a"}[kind]
+def pay_kb(uid, kind, bid=0, item="start"):
+    k = {"create": "c", "buy": "b", "addon": "a", "swap": "s"}[kind]
     tag = f"{k}:{bid}:{item}"
+    bk = kind_ctx(uid, k, bid)  # тип бота: от него зависит цена
     if kind == "addon":
         amount, promo = core.addon_price(item), None
+    elif kind == "swap":
+        amount, promo = core.swap_price(), None
     else:
-        amount, promo = core.final_price(uid, item)
+        amount, promo = core.final_price(uid, item, bk)
     stars = core.stars_for(amount)
     rows = []
-    if kind != "addon" and core.tariff_price(item) > 0 and amount <= 0:  # промокод на 100% — без оплаты
+    if kind not in ("addon", "swap") and core.tariff_price(item, bk) > 0 and amount <= 0:  # промокод на 100% — без оплаты
         rows.append([B("pay_free", f"c:pm:balance:{tag}")])
     else:
         if core.pay_on("stars"):
@@ -1035,21 +1092,21 @@ def pay_kb(uid, kind, bid=0, item="pro"):
         u = core.user(uid)
         if u and amount > 0 and (u["balance"] or 0) >= amount:
             rows.append([B("pay_balance", f"c:pm:balance:{tag}", text=f"{bt('pay_balance')} · {money(u['balance'])}")])
-    if kind != "addon" and core.flag_on("promo_btn") and not promo:
+    if kind not in ("addon", "swap") and core.flag_on("promo_btn") and not promo:
         rows.append([B("promo", f"c:promo:{'c' if kind == 'create' else 'b' + str(bid)}.{item}")])
-    rows.append([B("back", {"create": "c:tar:c:0", "buy": f"c:tar:b:{bid}", "addon": "c:addons"}[kind])])
+    rows.append([B("back", {"create": "c:tar:c:0", "buy": f"c:tar:b:{bid}", "addon": "c:addons", "swap": "c:bots"}[kind])])
     return rows
 
 
-def promo_line(uid, item="pro"):
-    amount, p = core.final_price(uid, item)
+def promo_line(uid, item="start", bk="shop"):
+    amount, p = core.final_price(uid, item, bk)
     if not p:
         return ""
     return tx("promo_line", code=html.escape(p["code"]), label=core.promo_label(p),
-              old=money(core.tariff_price(item)), price=money(amount))
+              old=money(core.tariff_price(item, bk)), price=money(amount))
 
 
-async def pay_menu(target, uid, kind, bid=0, item="pro"):
+async def pay_menu(target, uid, kind, bid=0, item="start"):
     """Способы оплаты: новый магазин (create), тариф для своего бота (buy) или дополнение (addon). item — тариф / ключ."""
     rows = pay_kb(uid, kind, bid, item)
     pay_rows = [r for r in rows if any((getattr(b, "callback_data", "") or "").startswith("c:pm:") for b in r if b)]
@@ -1059,7 +1116,14 @@ async def pay_menu(target, uid, kind, bid=0, item="pro"):
         amount = core.addon_price(item)
         text = tx("addon_" + item, price=money(amount)) + "\n\nВыбери способ оплаты 👇"
         return await out(target, text, kb(rows))
-    amount, _ = core.final_price(uid, item)
+    if kind == "swap":
+        b = db.hosted(bid)
+        sw = core.draft(uid)[0].get("_swap") or {}
+        text = tx("swap_pay", old=html.escape((b["username"] if b else "") or "?"),
+                  new=html.escape(sw.get("username") or "?"), price=money(core.swap_price()))
+        return await out(target, text, kb(rows))
+    bk = kind_ctx(uid, "c" if kind == "create" else "b", bid)
+    amount, _ = core.final_price(uid, item, bk)
     common = dict(price=money(amount), stars=core.stars_for(amount), tariff=core.tariff_name(item),
                   period=core.tariff_period(item))
     if kind == "create":
@@ -1067,7 +1131,7 @@ async def pay_menu(target, uid, kind, bid=0, item="pro"):
     else:
         b = db.hosted(bid)
         text = tx("pay_choose_buy", username=html.escape((b["username"] if b else "") or "?"), **common)
-    pl = promo_line(uid, item)
+    pl = promo_line(uid, item, bk)
     if pl:
         text += "\n\n" + pl
     await out(target, text, kb(rows))
@@ -1075,7 +1139,10 @@ async def pay_menu(target, uid, kind, bid=0, item="pro"):
 
 def item_title(kind, item, b=None):
     """Название покупки для счёта и уведомлений."""
-    name = core.ADDONS.get(item, ("Дополнение",))[0] if kind == "addon" else core.tariff_name(item)
+    if kind == "swap":
+        name = "Смена токена бота"
+    else:
+        name = core.ADDONS.get(item, ("Дополнение",))[0] if kind == "addon" else core.tariff_name(item)
     who = f" — @{b['username']}" if b and b["username"] else ""
     return core.plain(name) + who
 
@@ -1089,8 +1156,8 @@ async def cb_pay_method(call: CallbackQuery, bot: Bot):
         method, k, bid = parts[2], parts[3], int(parts[4])
     except (IndexError, ValueError):
         return await call.answer()
-    item = parts[5] if len(parts) > 5 else "pro"
-    kind = {"c": "create", "b": "buy", "a": "addon"}.get(k)
+    item = parts[5] if len(parts) > 5 else "start"
+    kind = {"c": "create", "b": "buy", "a": "addon", "s": "swap"}.get(k)
     if not kind:
         return await call.answer()
     if method != "balance" and not core.pay_on(method):
@@ -1108,23 +1175,38 @@ async def cb_pay_method(call: CallbackQuery, bot: Bot):
         b = db.hosted(bid)
         if not b or b["user_id"] != uid or not can_renew(b):
             return await call.answer("Этот бот уже куплен навсегда 🙂", show_alert=True)
+    elif kind == "swap":
+        b = db.hosted(bid)
+        d, _ = core.draft(uid)
+        sw = d.get("_swap") or {}
+        if not b or b["user_id"] != uid or sw.get("bid") != bid or not sw.get("token"):
+            await call.answer()
+            return await bots_view(call, uid)
+        if db.hosted_by_tg(sw["tg_id"]):
+            return await call.answer(core.plain(tx("token_taken")), show_alert=True)
+        data = sw
     else:
         b = db.hosted(bid) if bid else None
         if bid and (not b or b["user_id"] != uid):
             return await call.answer()
         if not core.addon_on(item):
             return await call.answer("Это дополнение сейчас недоступно", show_alert=True)
-    if kind != "addon" and not core.tariff_on(item):
+    bk = kind_ctx(uid, k, bid)
+    if kind not in ("addon", "swap") and not core.tariff_on(item, bk):
         return await call.answer("Этот тариф сейчас недоступен", show_alert=True)
     if kind == "addon":
         price, promo = core.addon_price(item), None
+    elif kind == "swap":
+        price, promo = core.swap_price(), None
     else:
-        price, promo = core.final_price(uid, item)
-        if price <= 0 and core.tariff_price(item) > 0:
+        price, promo = core.final_price(uid, item, bk)
+        if price <= 0 and core.tariff_price(item, bk) > 0:
             method = "balance"  # промокод на 100%: оплачивать нечего
     stars = core.stars_for(price)
     pid = core.create_payment(uid, kind, method, price, stars, bid or None, data)
     core.set_payment(pid, tariff=item, promo=promo["code"] if promo else None)
+    if kind == "swap" and price <= 0:
+        method = "balance"
 
     if method == "balance":
         if price > 0 and not core.take_balance(uid, price):
@@ -1212,12 +1294,13 @@ async def cb_pay_cancel(call: CallbackQuery):
     p = core.payment(int(call.data[7:]))
     if p and p["user_id"] == uid and p["status"] == "wait":
         core.set_payment(p["id"], status="canceled")
+        scrub_swap(p["id"])
     d, step = core.draft(uid)
     if step == "payreceipt":
         d.pop("_pid", None)
         core.save_draft(uid, d, "confirm" if core.next_step(d) == "confirm" else None)
     await call.answer(core.plain(tx("pay_canceled")))
-    if p and p["kind"] in ("buy", "addon"):
+    if p and p["kind"] in ("buy", "addon", "swap"):
         return await bots_view(call, uid)
     await advance(call, uid)
 
@@ -1248,7 +1331,7 @@ async def on_pay_receipt(m: Message, d, bot: Bot):
     file_id = m.photo[-1].file_id if m.photo else m.document.file_id
     core.set_payment(p["id"], status="pending", receipt=file_id)
     u = core.user(uid)
-    item = p["tariff"] or "pro"
+    item = p["tariff"] or "start"
     b = db.hosted(p["bot_id"]) if p["bot_id"] else None
     if p["kind"] == "create":
         data = json.loads(p["data"] or "{}")
@@ -1256,6 +1339,10 @@ async def on_pay_receipt(m: Message, d, bot: Bot):
                 f"\n💳 Тариф: {core.tariff_name(item)}")
     elif p["kind"] == "addon":
         what = f"🛍 {html.escape(item_title('addon', item, b))}"
+    elif p["kind"] == "swap":
+        sw = json.loads(p["data"] or "{}")
+        what = (f"🔑 Смена токена: @{html.escape((b['username'] if b else '') or '?')} → "
+                f"@{html.escape(sw.get('username') or '?')}")
     else:
         what = f"💳 {core.tariff_name(item)} для @{html.escape((b['username'] if b else '') or '?')}"
     caption = (f"💳 <b>Оплата по СБП — заявка #{p['id']}</b>\n\n{what}\n👤 {core.user_link(u)}\n"
@@ -1302,6 +1389,7 @@ async def reject_payment(pid, reason=None):
     if not p or p["status"] != "pending":
         return False
     core.set_payment(pid, status="rejected")
+    scrub_swap(pid)
     text = tx("receipt_ai_rejected", reason=html.escape(reason)) if reason else tx("pay_rejected", id=pid)
     await send(p["user_id"], text, kb([[B("support", "c:sup")]]))
     return True
@@ -1407,7 +1495,7 @@ async def on_paid(pid, receipt, auto=False):
         return False
     p = core.payment(pid)
     uid = p["user_id"]
-    item = p["tariff"] or "pro"
+    item = p["tariff"] or "start"
     method = core.PAY_NAMES.get(p["method"], p["method"]) + (" (автопродление)" if auto else "")
     stars_note = f" ({p['stars']} ⭐)" if p["method"] == "stars" else ""
     await after_paid(p)
@@ -1421,6 +1509,8 @@ async def on_paid(pid, receipt, auto=False):
                         + f"\n👤 {core.user_link(core.user(uid))}\n💰 {money(p['amount'])}{stars_note}\n\n"
                           "Свяжитесь с покупателем и выполните заказ.")
         return True
+    if p["kind"] == "swap":
+        return await do_swap(p, method)
     if p["kind"] == "buy":
         b = db.hosted(p["bot_id"])
         if not b:
@@ -1446,14 +1536,14 @@ async def on_paid(pid, receipt, auto=False):
             await send_vip(uid)
         return True
     d = json.loads(p["data"] or "{}")
-    await out(uid, tx("pay_ok"))
+    await out(uid, core.ny(tx("pay_ok")))
     await do_create(uid, d, trial=False, price=p["amount"], method=method,
                     stars=p["stars"] if p["method"] == "stars" else 0, tariff=item)
     await post_purchase(uid, item)
     return True
 
 
-async def do_create(uid, d, trial, price=0, method="", stars=0, tariff="pro"):
+async def do_create(uid, d, trial, price=0, method="", stars=0, tariff="start"):
     """Создаёт магазин клиента из данных мастера и запускает его."""
     from handlers import builder
     u = core.user(uid)
@@ -1465,7 +1555,7 @@ async def do_create(uid, d, trial, price=0, method="", stars=0, tariff="pro"):
                                + ("" if trial else f"\n💰 {money(price)} — нужно вернуть или помочь вручную"))
     bid = db.create_hosted(uid, 0 if trial else price)
     fields = dict(status="running", source="ctor", cfg=json.dumps(_public_cfg(d), ensure_ascii=False),
-                  no_app=1 if core.no_app(d) else 0,
+                  no_app=1 if core.no_app(d) and core.kind_of_draft(d) == "shop" else 0,  # у остальных типов своё приложение
                   token=d["token"], tg_id=d["tg_id"], username=d["username"], shop_name=d.get("title") or d["username"],
                   started=db.now())
     if trial:
@@ -1478,10 +1568,13 @@ async def do_create(uid, d, trial, price=0, method="", stars=0, tariff="pro"):
         if core.tariff_days(tariff):  # Start / Medium — со сроком
             fields["trial_until"] = builder.add_days(core.tariff_days(tariff))
     db.set_hosted(bid, **fields)
-    try:
-        await seed_shop(bid, d, _bot)
-    except Exception:
-        log.exception("конструктор: не записал настройки магазина #%s", bid)
+    if core.kind_of_draft(d) not in ("shop", "casino") and core.kind_of_draft(d):
+        pass  # внешний бот: своя база и настройки, ничего записывать заранее не нужно
+    else:
+        try:
+            await seed_shop(bid, d, _bot)
+        except Exception:
+            log.exception("конструктор: не записал настройки магазина #%s", bid)
     ok = await hosting.launch(bid)
     cur, _ = core.draft(uid)
     if not cur or cur.get("tg_id") == d.get("tg_id"):
@@ -1492,10 +1585,12 @@ async def do_create(uid, d, trial, price=0, method="", stars=0, tariff="pro"):
         note = tx("created_trial", until=builder.fmt_until(b["trial_until"]),
                   plan=html.escape(core.plan_line(b))) if b["trial_until"] else ""
         rows = [[raw_btn(f"🤖 Открыть @{d['username']}", url=f"https://t.me/{d['username']}", style="success")]]
+        if core.kind_of_draft(d) == "shop" and core.flag_on("ads_ai"):
+            rows.append([B("ad", f"c:adv:{bid}", text="🪄 Сгенерировать рекламный текст")])  # реклама магазина сразу после покупки
         if any(core.addon_on(a) for a in core.ADDONS):
             rows.append([B("addons", "c:addons")])
         rows.append([B("bots", "c:bots"), B("menu", "c:menu")])
-        await out(uid, tx("created", username=name, trial=note), kb(rows))
+        await out(uid, core.ny(tx("created", username=name, trial=note)), kb(rows))
         await send_curator(uid, d["username"])
     else:
         await out(uid, tx("create_fail", username=name), kb([[B("support", "c:sup")], [B("menu", "c:menu")]]))
@@ -1533,6 +1628,8 @@ async def seed_shop(bid, d, bot: Bot):
         "t:welcome:en": d.get("welcome") or None,
         "support_url": fix_url(d.get("support") or "") or None,
     }
+    if core.kind_of_draft(d) == "casino":  # игровой бот читает название из настроек (контакт для покупки CRX — из его конфига)
+        vals["brand"] = (d.get("title") or "").strip()[:40] or None
     if d.get("color") == "black":
         vals["app_theme"] = "dark"
     if d.get("wmedia"):
@@ -1595,20 +1692,23 @@ async def bots_view(target, uid):
             [B("app", web_app=url) if url else B("create", "c:new")], [B("menu", "c:menu")]]))
     text = tx("bots_head") + "\n"
     rows = []
-    mn = money(core.min_tariff_price())
     for b in bots[:15]:
+        bk = hosting.kind_of(b)
+        mn = money(core.min_tariff_price(bk))
         name = f"@{html.escape(b['username'])}" if b["username"] else f"#{b['id']}"
         badge = " 🏅" if b["verified"] else ""
         text += f"\n{STATUS_ICON.get(b['status'], '•')} <b>{name}</b>{badge} — {STATUS_RU.get(b['status'], b['status'])}"
-        text += f"\n     {html.escape(core.plan_line(b))}"
+        text += f"\n     {html.escape(kinds.name(bk))} · {html.escape(core.plan_line(b))}"
         if b["status"] == "running" and b["username"]:
             from ctor import ai
             rows.append([raw_btn(f"🤖 @{b['username']}", url=f"https://t.me/{b['username']}")]
-                        + ([B("ad", f"c:adv:{b['id']}")] if ai.key() and core.flag_on("ads_ai") else []))
+                        + ([B("ad", f"c:adv:{b['id']}")] if bk == "shop" and core.flag_on("ads_ai") else []))
         if b["status"] == "failed":
             rows.append([B("new_token", f"c:rt:{b['id']}", text=f"{bt('new_token')} · @{b['username']}")])
         if can_renew(b):
             rows.append([B("renew", f"c:tar:b:{b['id']}", text=f"{bt('renew')} · @{b['username']} · от {mn}")])
+        if b["token"] and core.swap_on():
+            rows.append([raw_btn(f"🔑 Сменить бота · @{b['username']} · {money(core.swap_price())}", f"c:sw:{b['id']}")])
     u = core.user(uid)
     if u and (u["balance"] or 0) > 0:
         text += f"\n\n💰 Баланс: <b>{money(u['balance'])}</b>"
@@ -1656,7 +1756,7 @@ async def cb_ad(call: CallbackQuery):
     from ctor import ai
     uid = call.from_user.id
     b = db.hosted(int(call.data[6:]) if call.data[6:].isdigit() else 0)
-    if not b or b["user_id"] != uid or not b["username"] or not ai.key():
+    if not b or b["user_id"] != uid or not b["username"]:
         return await call.answer()
     today = _t.strftime("%Y-%m-%d")
     if _t.monotonic() - _ad_last.get(uid, -1e9) < 60 or _ad_day.get((uid, today), 0) >= 10:
@@ -1670,10 +1770,11 @@ async def cb_ad(call: CallbackQuery):
         cfg = json.loads(b["cfg"] or "{}")
     except ValueError:
         cfg = {}
-    posts = await ai.ad_posts(cfg.get("title") or b["shop_name"] or b["username"], cfg.get("desc") or "",
-                              shop_products(b["id"]), f"https://t.me/{b['username']}")
-    if not posts:
-        return await send(uid, tx("ad_fail"), kb([[B("ad_more", f"c:adv:{b['id']}")]]))
+    title = cfg.get("title") or b["shop_name"] or b["username"]
+    products, link = shop_products(b["id"]), f"https://t.me/{b['username']}"
+    posts = await ai.ad_posts(title, cfg.get("desc") or "", products, link) if ai.key() else None
+    if not posts:  # нет ключа нейросети или она не ответила — собираем текст по шаблонам
+        posts = ai.template_posts(title, cfg.get("desc") or "", products, link)
     await send(uid, tx("ad_head", username=name))
     for i, p in enumerate(posts, 1):
         last = i == len(posts)
@@ -1683,7 +1784,7 @@ async def cb_ad(call: CallbackQuery):
 
 def has_paid(uid):
     """Покупал хоть один тариф — ему положен чат владельцев."""
-    return bool(db.val("SELECT COUNT(*) FROM ctor_payments WHERE user_id=? AND status='paid' AND kind!='addon'",
+    return bool(db.val("SELECT COUNT(*) FROM ctor_payments WHERE user_id=? AND status='paid' AND kind NOT IN ('addon','swap')",
                        (uid,)))
 
 
@@ -1712,6 +1813,119 @@ async def cb_buy(call: CallbackQuery):
         return await call.answer("Этот бот уже куплен навсегда 🙂", show_alert=True)
     await call.answer()
     await tariff_view(call, uid, "b", bid)
+
+
+# ---------- 🔑 смена бота (другой токен), платно ----------
+async def swap_start(target, uid, bid):
+    """«Сменить бота»: просим токен нового бота. Возвращает True, если начали."""
+    b = db.hosted(bid)
+    if not b or b["user_id"] != uid or not b["token"]:
+        return False
+    d, _ = core.draft(uid)
+    d["_sw"] = bid
+    d.pop("_swap", None)
+    core.save_draft(uid, d, "newtoken")
+    await out(target, tx("swap_ask", old=html.escape(b["username"] or "?"), price=money(core.swap_price())),
+              kb([[B("botfather", url="https://t.me/BotFather")], [B("cancel", "c:swcan")]]))
+    return True
+
+
+@router.callback_query(F.data.startswith("c:sw:"))
+async def cb_swap(call: CallbackQuery):
+    uid = call.from_user.id
+    if not core.swap_on():
+        return await call.answer("Смена бота сейчас недоступна", show_alert=True)
+    bid = int(call.data[5:]) if call.data[5:].isdigit() else 0
+    if not await swap_start(call, uid, bid):
+        return await call.answer()
+    await call.answer()
+
+
+@router.callback_query(F.data == "c:swcan")
+async def cb_swap_cancel(call: CallbackQuery):
+    uid = call.from_user.id
+    d, _ = core.draft(uid)
+    d.pop("_sw", None)
+    d.pop("_swap", None)
+    core.save_draft(uid, d, None)
+    await call.answer()
+    await bots_view(call, uid)
+
+
+async def _swap_token(wait, uid, d, token, me):
+    bid = int(d.get("_sw") or 0)
+    b = db.hosted(bid)
+    if not b or b["user_id"] != uid or not b["token"]:
+        core.save_draft(uid, d, None)
+        return await wait.edit_text(tx("no_draft"))
+    if me.id == b["tg_id"]:
+        return await wait.edit_text(tx("swap_same", old=html.escape(b["username"] or "?")))
+    if db.hosted_by_tg(me.id):
+        return await wait.edit_text(tx("token_taken"))
+    d["_swap"] = {"bid": bid, "token": token, "tg_id": me.id, "username": me.username, "name": me.first_name}
+    d.pop("_sw", None)
+    core.save_draft(uid, d, None)
+    await wait.delete()
+    await pay_menu(uid, uid, "swap", bid, "swap")
+
+
+def scrub_swap(pid):
+    """Смена бота закончена, отменена или отклонена: токен из платежа стираем (остаётся только ник)."""
+    p = core.payment(pid)
+    if not p or p["kind"] != "swap":
+        return
+    try:
+        sw = json.loads(p["data"] or "{}")
+    except ValueError:
+        sw = {}
+    core.set_payment(pid, data=json.dumps({"bid": sw.get("bid"), "username": sw.get("username"), "tg_id": sw.get("tg_id")},
+                                          ensure_ascii=False))
+
+
+async def do_swap(p, method):
+    """Смена бота оплачена: подставляем новый токен, перезапускаем процесс."""
+    uid = p["user_id"]
+    sw = json.loads(p["data"] or "{}")
+    b = db.hosted(p["bot_id"])
+    if not b or not sw.get("token"):
+        scrub_swap(p["id"])
+        return True
+    other = db.hosted_by_tg(sw.get("tg_id") or 0)
+    if other and other["id"] != b["id"]:
+        scrub_swap(p["id"])
+        core.add_balance(uid, p["amount"] or 0)  # пока платили, нового бота подключили в другом месте
+        u = core.user(uid)
+        await out(uid, tx("swap_fail", new=html.escape(sw.get("username") or "?"), price=money(p["amount"])),
+                  kb([[B("bots", "c:bots"), B("menu", "c:menu")]]))
+        return True
+    old_name = b["username"] or "?"
+    was_running = b["status"] == "running"
+    await hosting.stop(b["id"])
+    try:
+        cfg = json.loads(b["cfg"] or "{}")
+    except ValueError:
+        cfg = {}
+    cfg.update(tg_id=sw["tg_id"], username=sw["username"], bot_name=sw.get("name"))
+    fields = dict(token=sw["token"], tg_id=sw["tg_id"], username=sw["username"], cfg=json.dumps(cfg, ensure_ascii=False))
+    if b["status"] in ("failed", "wait_token"):
+        fields["status"] = "running"
+        was_running = True
+    db.set_hosted(b["id"], **fields)
+    scrub_swap(p["id"])
+    ok = True
+    if was_running:
+        ok = await hosting.launch(b["id"])
+    name = html.escape(sw.get("username") or "?")
+    await out(uid, tx("swap_done", new=name, old=html.escape(old_name)) if ok else tx("create_fail", username=name),
+              kb([[raw_btn(f"🤖 @{sw.get('username')}", url=f"https://t.me/{sw.get('username')}", style="success")],
+                  [B("bots", "c:bots"), B("menu", "c:menu")]]))
+    d, _ = core.draft(uid)
+    d.pop("_swap", None)
+    core.save_draft(uid, d, None)
+    await to_admins(f"🔑 <b>Смена бота</b> — {method}\n\n#{b['id']} @{html.escape(old_name)} → @{name}\n"
+                    f"👤 {core.user_link(core.user(uid))}\n💰 {money(p['amount'])}"
+                    + ("" if ok else "\n⚠️ Новый бот не запустился — смотрите лог."))
+    return True
 
 
 @router.callback_query(F.data.startswith("c:rt:"))
@@ -1851,19 +2065,20 @@ async def send_receipt(m: Message, t, bot: Bot):
 
 # ======================= уведомления от hosting / builder =======================
 def _buy_kb(b):
-    return kb([[B("renew", f"c:tar:b:{b['id']}", text=f"{bt('renew')} · от {money(core.min_tariff_price())}")],
+    return kb([[B("renew", f"c:tar:b:{b['id']}", text=f"{bt('renew')} · от {money(core.min_tariff_price(hosting.kind_of(b)))}")],
                [B("topup", "c:top"), B("bots", "c:bots")]])
 
 
 def autobuy_tariff(b):
     """Каким тарифом продлевать автоматически: тот же Start / Medium, пробный — Start (или самый дешёвый)."""
+    bk = hosting.kind_of(b)
     p = core.bot_plan(b)
-    if p in ("start", "medium") and core.tariff_on(p):
+    if p in ("start", "medium") and core.tariff_on(p, bk):
         return p
-    timed = [k for k in core.tariffs_on() if core.tariff_days(k)]
+    timed = [k for k in core.tariffs_on(bk) if core.tariff_days(k)]
     if "start" in timed:
         return "start"
-    return min(timed or core.tariffs_on() or ["pro"], key=core.tariff_price)
+    return min(timed or ["start"], key=lambda k: core.tariff_price(k, bk))
 
 
 def autobuy_line(b):
@@ -1872,7 +2087,7 @@ def autobuy_line(b):
     if not core.flag_on("autobuy") or not u or not u["autobuy"] or not b["token"]:
         return ""
     tariff = autobuy_tariff(b)
-    amount, _ = core.final_price(b["user_id"], tariff)
+    amount, _ = core.final_price(b["user_id"], tariff, hosting.kind_of(b))
     need = round(amount - (u["balance"] or 0), 2)
     label = f"{core.tariff_name(tariff)}, {money(amount)}"
     if need <= 0:  # выключенного бота сам не продлеваю — пусть нажмёт «Продлить»
@@ -1884,7 +2099,7 @@ async def trial_notice(b, kind):
     """Срок магазина из конструктора (пробный или тариф): kind = soon (за сутки) / over (выключен)."""
     from handlers import builder
     name = html.escape(b["username"] or "?")
-    price = money(core.min_tariff_price())
+    price = money(core.min_tariff_price(hosting.kind_of(b)))
     trial = core.bot_plan(b) == "trial"
     what = core.plan_what(b)
     if kind == "soon":
@@ -1909,7 +2124,7 @@ async def try_autobuy(bid):
         if db.val("SELECT COUNT(*) FROM ctor_payments WHERE bot_id=? AND kind='buy' AND status='pending'", (bid,)):
             return False  # чек СБП за этого бота уже на проверке — не списываем второй раз
         tariff = autobuy_tariff(b)
-        amount, promo = core.final_price(u["id"], tariff)
+        amount, promo = core.final_price(u["id"], tariff, hosting.kind_of(b))
         if (u["balance"] or 0) < amount:
             return False
         if amount > 0 and not core.take_balance(u["id"], amount):

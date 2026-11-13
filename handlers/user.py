@@ -14,7 +14,7 @@ import db
 import subscription
 from services import safe_send, to_admins, user_link
 from texts import bar, fdate, money, status, t
-from ui import as_media, btn, kb, main_kb, menu_row, pager, render, shop_btn
+from ui import as_media, btn, kb, links_kb, main_kb, menu_row, pager, render, shop_btn
 
 router = Router()
 
@@ -140,7 +140,25 @@ async def cb_setlang(call: CallbackQuery, state: FSMContext):
 
 
 # ---------- профиль ----------
+def profile_text_plain(u, lang):
+    """Профиль для магазина без мини-приложения: короткий список строк."""
+    ru = lang != "en"
+    lines = [f"👤 <b>{'Профиль' if ru else 'Profile'}</b>\n", f"🆔 ID: <code>{u['id']}</code>"]
+    if appcfg.statuses_on():
+        lines.append(f"🏅 {'Статус' if ru else 'Status'}: <b>{html.escape(appcfg.status_value(u))}</b>")
+    lines += [f"💰 {'Баланс' if ru else 'Balance'}: <b>{money(u['balance'])}</b>",
+              f"👥 {'Реферальный баланс' if ru else 'Referral balance'}: <b>{money(u['ref_balance'])}</b>",
+              f"🛒 {'Покупок оформлено' if ru else 'Orders placed'}: <b>{db.count_user_orders(u['id'])}</b>"]
+    if u["promo_percent"]:
+        lines.append(f"🎟 {'Промокод' if ru else 'Promo'}: <code>{html.escape(u['promo_code'])}</code> (−{u['promo_percent']}%)")
+    else:
+        lines.append(f"🎟 {'Промокод' if ru else 'Promo'}: <b>{'не оформлено' if ru else 'none'}</b>")
+    return "\n".join(lines)
+
+
 def profile_text(u, lang):
+    if config.NO_APP:
+        return profile_text_plain(u, lang)
     cur, nxt, pct, left = appcfg.user_status(u)
     if not appcfg.statuses_on():
         progress = appcfg.STATUS_MARK
@@ -167,6 +185,16 @@ def profile_kb(u, lang):
         if b and label:
             b.text = f"{b.text} · {label}"
         bonus = [b]
+    if config.NO_APP:  # раскладка кнопок как у магазинов-ботов без мини-приложения
+        return kb([
+            [btn("topup", lang, "topup"), btn("my_orders", lang, "ord:p:0")],
+            [btn("pstats", lang, "pstats")],
+            [btn("refs", lang, "refs")],
+            [btn("promo", lang, "promo"), btn("lang", lang, "lang")],
+            bonus,
+            [btn("fav", lang, "l:pfav:0"), btn("statuses", lang, "stl") if appcfg.statuses_on() else None],
+            [btn("back", lang, "menu")],
+        ])
     return kb([
         [btn("topup", lang, "topup")],
         bonus,
@@ -185,6 +213,31 @@ async def show_profile(target, lang, uid, note=None):
 async def cb_profile(call: CallbackQuery, state: FSMContext, lang: str):
     await state.clear()
     await show_profile(call, lang, call.from_user.id)
+    await call.answer()
+
+
+@router.callback_query(F.data == "links")
+async def cb_links(call: CallbackQuery, state: FSMContext, lang: str):
+    await state.clear()
+    await render(call, "🔗 <b>Полезные ссылки</b>" if lang != "en" else "🔗 <b>Useful links</b>", links_kb(lang))
+    await call.answer()
+
+
+@router.callback_query(F.data == "pstats")
+async def cb_pstats(call: CallbackQuery, lang: str):
+    ru = lang != "en"
+    uid = call.from_user.id
+    orders = db.user_orders(uid)
+    done = [o for o in orders if o["status"] in ("done", "manual")]
+    spent = db.user_spent(uid)
+    lines = [f"📊 <b>{'Статистика покупок' if ru else 'Purchase stats'}</b>\n",
+             f"🛒 {'Всего заказов' if ru else 'Orders'}: <b>{len(orders)}</b>",
+             f"✅ {'Выполнено' if ru else 'Completed'}: <b>{len(done)}</b>",
+             f"💸 {'Потрачено' if ru else 'Spent'}: <b>{money(spent)}</b>"]
+    if done:
+        lines.append(f"🧮 {'Средний чек' if ru else 'Average'}: <b>{money(spent / len(done))}</b>")
+        lines.append(f"🕓 {'Последняя покупка' if ru else 'Last purchase'}: <b>{fdate(done[0]['created'])}</b>")
+    await render(call, "\n".join(lines), kb([[btn("back", lang, "profile")]]))
     await call.answer()
 
 

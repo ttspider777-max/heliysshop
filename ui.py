@@ -110,8 +110,38 @@ def legal_row(lang):
     return row
 
 
+def links_kb(lang):
+    """Экран «🔗 Полезные ссылки» (магазин без мини-приложения). Кнопки без настроенной ссылки не показываются."""
+    def url_of(key):
+        return fix_url(db.get_setting(key, "") or "")
+    reviews = fix_url(db.get_setting("reviews_url", config.REVIEWS_URL))
+    rules = url_of("rules_url")
+    guar, chan = url_of("guarantees_url"), url_of("channel_url")
+    return kb([
+        [btn("guarantees", lang, url=guar) if guar else None, btn("support", lang, "sup")],
+        [btn("reviews", lang, url=reviews) if reviews else None,
+         (btn("rules", lang, url=rules) if rules else btn("rules", lang, "legal:terms:0") if doc_text("terms") else None)],
+        [btn("channel", lang, url=chan) if chan else None],
+        [btn("docs", lang, "docs")] if has_docs() else [],
+        [btn("suppliers", lang, f"l:c{db.suppliers_cid()}:0")],
+        menu_row(lang),
+    ])
+
+
 def main_kb(lang, is_admin=False):
     reviews = fix_url(db.get_setting("reviews_url", config.REVIEWS_URL))
+    if config.NO_APP:  # магазин из конструктора «без мини-приложения»: компактное меню кнопками
+        rows = [[btn("catalog", lang, "cat"), btn("profile", lang, "profile")],
+                [btn("links", lang, "links")],
+                [btn("codex", lang, "codex")] if codex_on() else []]
+        rows = [[x for x in r if x] for r in rows]
+        for c in db.custom_buttons():
+            u = fix_url(c["url"])
+            if u:
+                rows.append([raw_btn(c["text"], url=u, icon=c["emoji_id"])])
+        if is_admin:
+            rows.append([raw_btn("⚙️ Админ-панель", "a:home", style="danger")])
+        return kb(rows)
     rows = [
         [shop_btn(lang)],                                     # «🛍 Открыть магазин» — мини-приложение
         [btn("profile", lang, "profile"), btn("orders", lang, "ord:m:0")],
