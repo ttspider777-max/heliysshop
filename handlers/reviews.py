@@ -38,7 +38,7 @@ async def cb_rate(call: CallbackQuery, state: FSMContext, lang: str):
     except ValueError:
         return await call.answer()
     o = db.order(oid)
-    if not o or o["user_id"] != call.from_user.id or o["status"] != "done" or not 1 <= n <= 5:
+    if not o or o["user_id"] != call.from_user.id or o["status"] not in ("done", "manual") or not 1 <= n <= 5:
         return await call.answer()
     rid = db.add_review(oid, o["user_id"], o["product_id"], n)
     if not rid:
@@ -48,6 +48,23 @@ async def cb_rate(call: CallbackQuery, state: FSMContext, lang: str):
     await render(call, t("rate_text", lang, stars=stars(n)), kb([[btn("rv_skip", lang, "rvs")]]))
     await call.answer("⭐" * n)
     await notify_admins(call.bot, db.review(rid))
+
+
+@router.callback_query(F.data.startswith("rvw:"))
+async def cb_write(call: CallbackQuery, lang: str):
+    """«✍️ Оставить отзыв» под товаром: только тем, кто купил товар и ещё не оценил эту покупку."""
+    try:
+        pid = int(call.data.split(":")[1])
+    except (ValueError, IndexError):
+        return await call.answer()
+    o = db.review_order_for(call.from_user.id, pid)
+    p = db.product(pid)
+    if not o or not p:
+        return await call.answer(t("rate_none", lang), show_alert=True)
+    stars_row = [raw_btn(f"{n}⭐", f"rv:{o['id']}:{n}") for n in range(1, 6)]
+    await render(call, t("rate_pick", lang, name=html.escape(p["name"])),
+                 kb([stars_row, [btn("back", lang, f"p:{pid}:{call.data.split(':')[2] if call.data.count(':') > 1 else 'all'}")]]))
+    await call.answer()
 
 
 @router.callback_query(F.data == "rvs")

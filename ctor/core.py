@@ -11,6 +11,7 @@ import re
 import appcfg
 import config
 import db
+from ctor import kinds
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ctor_users (
@@ -212,7 +213,16 @@ TARIFFS = {
 }
 
 
-def tariff_price(key):
+def tariff_price(key, kind="shop"):
+    """Цена тарифа. У магазина — как раньше (tp:<тариф>), у остальных типов ботов своя (kp:<тип>:<тариф>), которую владелец
+    ставит в /admin → 🧩 Типы ботов; пока не задана — как у магазина."""
+    if kind != "shop":
+        own = get(f"kp:{kind}:{key}")
+        if own not in (None, ""):
+            try:
+                return max(float(own), 0)
+            except ValueError:
+                pass
     if key == "pro":
         return price()
     try:
@@ -225,12 +235,16 @@ def tariff_days(key):
     return TARIFFS.get(key, ("", 0, 0))[1]
 
 
-def tariff_on(key):
-    return key in TARIFFS and get("toff:" + key) != "1"
+def tariff_on(key, kind="shop"):
+    """Тариф продаётся. Тарифы «навсегда» (Pro, VIP) больше не продаются — только подписка на срок (у старых ботов
+    они продолжают работать, см. bot_plan)."""
+    if key not in TARIFFS or TARIFFS[key][1] <= 0:
+        return False
+    return get("toff:" + key) != "1" and get(f"koff:{kind}:{key}") != "1"
 
 
-def tariffs_on():
-    return [k for k in TARIFFS if tariff_on(k)]
+def tariffs_on(kind="shop"):
+    return [k for k in TARIFFS if tariff_on(k, kind)]
 
 
 def tariff_name(key):
@@ -242,9 +256,34 @@ def tariff_period(key):
     return f"{d} {days_word(d)}" if d else "навсегда"
 
 
-def min_tariff_price():
-    prices = [tariff_price(k) for k in tariffs_on()]
+def min_tariff_price(kind="shop"):
+    prices = [tariff_price(k, kind) for k in tariffs_on(kind)]
     return min(prices) if prices else price()
+
+
+# ======================= типы ботов (ctor/kinds.py) =======================
+def kind_on(kind):
+    """Тип бота доступен покупателям (в админке можно скрыть)."""
+    return kind in kinds.KINDS and kind not in kinds.RETIRED and get("kind_off:" + kind) != "1"
+
+
+def kinds_on():
+    return [k for k in kinds.KINDS if kind_on(k)]
+
+
+def kind_of_draft(d):
+    """Тип бота в черновике. None — ещё не выбран (и выбор есть: включено больше одного типа)."""
+    k = (d or {}).get("kind")
+    if k in kinds.KINDS:
+        return k
+    if (d or {}).get("template") == "casino":
+        return "casino"  # черновики до появления выбора типа
+    on = kinds_on()
+    return on[0] if len(on) == 1 else None
+
+
+def kind_name(kind):
+    return kinds.name(kind)
 
 
 def bot_plan(b):
@@ -270,6 +309,33 @@ def plan_what(b):
     """Для напоминаний: «пробного периода» / «тарифа 🚀 Start»."""
     p = bot_plan(b)
     return "пробного периода" if p == "trial" else f"тарифа {tariff_name(p)}"
+
+
+# ======================= новогоднее оформление сообщений бота =======================
+NY_LINE = "🎄 ❄️ ✨ ❄️ 🎄"
+
+
+def ny_on():
+    """Новогодняя тема включена (/admin → 🎄 Новогодняя тема): та же настройка, что у мини-приложения."""
+    return get("ny") == "1"
+
+
+def ny(text):
+    """Праздничная строка над ключевым сообщением (приветствие, бот создан, оплата прошла)."""
+    return f"{NY_LINE}\n{text}" if ny_on() and text else text
+
+
+# ======================= смена токена (бота) =======================
+def swap_price():
+    """Сколько стоит подключить к уже созданному боту другого Telegram-бота (смена токена): /admin → 🧩 Типы ботов."""
+    try:
+        return max(float(get("swap_price", 50)), 0)
+    except (TypeError, ValueError):
+        return 50.0
+
+
+def swap_on():
+    return get("swap_off") != "1"
 
 
 # ======================= дополнения =======================
@@ -335,8 +401,8 @@ COURSE = [
 ]
 
 FAQ = [
-    {"q": "Сколько стоит магазин?", "a": "Start — 99₽ на 30 дней, Medium — 200₽ на 90 дней, Pro — 300₽ навсегда, "
-                                        "VIP — 750₽ навсегда + исходный код. Есть бесплатный пробный период."},
+    {"q": "Сколько стоит магазин?", "a": "Это подписка на срок: Start — 30 дней, Medium — 90 дней (цены смотри в разделе «Тарифы»). "
+                                        "Есть бесплатный пробный период."},
     {"q": "Нужно ли уметь программировать?", "a": "Нет. Выбираешь цвет, стиль, название и присылаешь токен из "
                                                   "@BotFather — магазин запускается сам."},
     {"q": "Где взять токен бота?", "a": "Открой @BotFather → /newbot → придумай имя и username на «bot» → скопируй "
@@ -347,8 +413,6 @@ FAQ = [
                                                      "Продлишь — он сразу заработает."},
     {"q": "Можно ли продлить автоматически?", "a": "Да: пополни баланс конструктора — бот продлится сам перед концом "
                                                    "срока (автопродление включается в «Мои боты»)."},
-    {"q": "Что входит в VIP?", "a": "Магазин навсегда + полный исходный код конструктора и магазина с инструкцией по "
-                                    "запуску — сможешь продавать магазины под своим брендом."},
     {"q": "Кто поможет с настройкой?", "a": "Личный куратор: поможет с товарами, рекламным текстом и оформлением. "
                                             "Напиши в чат с куратором в приложении."},
 ]
@@ -381,7 +445,7 @@ def set_partner(uid, code):
 
 def partner_reward(pay):
     """Первая оплата покупателя партнёра -> партнёру его фиксированная сумма. -> (партнёр, сумма) или None."""
-    if (pay["amount"] or 0) <= 0 or pay["kind"] == "addon":
+    if (pay["amount"] or 0) <= 0 or pay["kind"] in ("addon", "swap"):
         return None
     cur = db.conn.execute("UPDATE ctor_users SET partner_paid=1 WHERE id=? AND partner_id IS NOT NULL "
                           "AND partner_paid=0", (pay["user_id"],))
@@ -566,9 +630,9 @@ def use_promo(code, uid):
     db.conn.commit()
 
 
-def final_price(uid, tariff="pro"):
+def final_price(uid, tariff="start", kind="shop"):
     """Цена тарифа для человека с учётом введённого промокода. -> (сумма ₽, промокод или None)."""
-    base = tariff_price(tariff)
+    base = tariff_price(tariff, kind)
     p = active_promo(uid)
     if not p or p["kind"] == "days":
         return base, None
@@ -661,8 +725,8 @@ TEXTS = {
         "{trial}👇 Жми «Открыть приложение»")),
     "trial_line": ("🎁 Строка про пробный период", "🎁 Пробный период — <b>{days}</b> бесплатно. Тарифы — от {min} "
                                                    "(звёзды, крипта, СБП).\n\n"),
-    "price_line": ("💰 Строка про цену (без пробного)", "💳 Магазин — от <b>{min}</b>: Start, Medium, Pro "
-                                                       "или VIP (звёзды, крипта, СБП).\n\n"),
+    "price_line": ("💰 Строка про цену (без пробного)", "💳 Магазин — от <b>{min}</b>: Start или Medium "
+                                                       "(звёзды, крипта, СБП).\n\n"),
     "step_mode": ("🧭 Шаг 0 — с мини-приложением или без", (
         "🧭 <b>Какой бот тебе нужен?</b>\n\n<blockquote>📱 <b>С мини-приложением</b> — красивая витрина внутри Telegram: "
         "карточки товаров, поиск, избранное, свой цвет и стиль.\n\n💬 <b>Без мини-приложения</b> — классический бот: "
@@ -821,7 +885,7 @@ TEXTS = {
     "lastday_offer": ("🎁 Скидка в последний день пробного", (
         "🎁 <b>Последний день пробного — скидка {pct}% только для тебя</b>\n\nПробный период @{username} скоро "
         "закончится. Держи личный промокод <code>{code}</code> — он уже применён, действует <b>{hours} ч</b>.\n\n"
-        "Например, Pro навсегда: <s>{old}</s> → <b>{price}</b>.\n\nУспей продлить — магазин продолжит работать без "
+        "Например, Start: <s>{old}</s> → <b>{price}</b>.\n\nУспей продлить — магазин продолжит работать без "
         "перерыва, товары и покупатели останутся.")),
     "weekly_report": ("📊 Еженедельный отчёт владельцу", (
         "📊 <b>Неделя магазина @{username}</b>\n\n<blockquote>{stats}</blockquote>\n\n{tip}")),
@@ -860,6 +924,25 @@ TEXTS = {
                                                  "продлевается сам перед концом срока (пробный — тарифом Start) или "
                                                  "сразу после пополнения."),
     # ---------- тарифы ----------
+    "step_kind": ("🧩 Шаг 0 — какой бот", "🧩 <b>Какой бот создаём?</b>\n\nВыбери тип — дальше я спрошу только то, что "
+                                         "нужно именно для него."),
+    "tariffs_head_other": ("💎 Тарифы — заголовок (не магазин)", "💎 <b>Тарифы: {bot}</b>\n\nПодписка на срок. "
+                                                                   "Не продлишь — бот выключится, а настройки и данные сохранятся."),
+    "tariff_other": ("💎 Описание тарифа (не магазин)", "{name} — <b>{price}</b> · {period}\n<blockquote>"
+                                                        "✅ {bot} под твоим названием\n✅ Свой бот и свои данные\n"
+                                                        "✅ Продление в 1 клик или автоматически с баланса</blockquote>"),
+    "swap_ask": ("🔑 Смена бота — запрос токена", "🔑 <b>Смена бота @{old}</b>\n\nВсё содержимое останется (настройки, "
+                                                  "база, срок подписки), но бот будет работать на <b>другом</b> Telegram-боте.\n"
+                                                  "Стоимость: <b>{price}</b>.\n\nСоздай нового бота в @BotFather и пришли его токен "
+                                                  "(сообщение я сразу удалю):"),
+    "swap_same": ("🔑 Смена бота — тот же бот", "Это токен того же бота @{old}. Если ты просто перевыпустил токен — "
+                                                "нажми «Новый токен» у бота в списке, это бесплатно."),
+    "swap_pay": ("🔑 Смена бота — оплата", "🔑 <b>Смена бота</b>\n\n@{old} → <b>@{new}</b>\nСтоимость: <b>{price}</b>.\n\n"
+                                           "Выбери способ оплаты 👇"),
+    "swap_done": ("🔑 Смена бота — готово", "✅ Готово! Теперь бот работает на <b>@{new}</b>.\n\n"
+                                            "Старый бот @{old} больше не связан с конструктором."),
+    "swap_fail": ("🔑 Смена бота — не удалось", "⚠️ Бот @{new} уже подключён к другому боту — деньги вернул на баланс "
+                                               "конструктора ({price})."),
     "tariffs_head": ("💎 Тарифы — заголовок", "💎 <b>Тарифы heliys конструктора</b>\n\nВо всех тарифах — полноценный "
                                               "магазин со всеми функциями. Разница только в сроке и бонусах."),
     "tariff_start": ("🚀 Описание тарифа Start", (
@@ -1237,8 +1320,22 @@ def drop_draft(uid):
 
 
 # порядок шагов мастера: первый незаполненный — следующий
-ORDER = ("mode", "color", "style", "title", "desc", "template", "welcome", "support", "token")
+ORDER = ("kind", "mode", "color", "style", "title", "desc", "template", "welcome", "support", "token")
+ORDER_OTHER = ("kind", "title", "support", "token")  # казино и внешние боты: тип, название, поддержка, токен
 APP_ONLY = ("color", "style")  # шаги, которые нужны только магазину с мини-приложением
+
+
+def steps_of(d):
+    """Шаги мастера для этого черновика: у магазина все, у остальных типов — короткий список."""
+    k = kind_of_draft(d)
+    out = []
+    for step in (ORDER_OTHER if k and k != "shop" else ORDER):
+        if step == "kind" and len(kinds_on()) <= 1:
+            continue
+        if step in APP_ONLY and no_app(d):
+            continue
+        out.append(step)
+    return out
 
 
 def no_app(d):
@@ -1332,9 +1429,7 @@ def template_counts(key):
 
 
 def next_step(d):
-    for k in ORDER:
-        if k in APP_ONLY and no_app(d):
-            continue
+    for k in steps_of(d):
         if k not in d:
             return k
     return "confirm"

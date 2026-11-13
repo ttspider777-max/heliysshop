@@ -269,6 +269,20 @@ def review_stats(pid):
     return (round(r["a"], 1) if r and r["a"] else 0), (r["n"] if r else 0)
 
 
+def review_order_for(uid, pid):
+    """Выданный заказ этого покупателя на товар, за который он ещё не оставил отзыв (один отзыв на покупку).
+    Отзыв может оставить только тот, кто купил товар, — так он честный и виден всем под товаром."""
+    return q1("""SELECT o.* FROM orders o LEFT JOIN reviews r ON r.order_id=o.id
+                 WHERE o.user_id=? AND o.product_id=? AND o.status IN ('done','manual') AND r.id IS NULL
+                 ORDER BY o.id DESC LIMIT 1""", (uid, pid))
+
+
+def reviews_page(pid, limit=10, offset=0):
+    """Все отзывы о товаре, новые сверху (для мини-приложения)."""
+    return q("""SELECT r.*, u.first_name FROM reviews r LEFT JOIN users u ON u.id=r.user_id
+                WHERE r.product_id=? AND r.hidden=0 ORDER BY r.id DESC LIMIT ? OFFSET ?""", (pid, limit, offset))
+
+
 def reviews_for(pid, limit=5, offset=0):
     return q("""SELECT r.*, u.first_name FROM reviews r LEFT JOIN users u ON u.id=r.user_id
                 WHERE r.product_id=? AND r.hidden=0 ORDER BY (r.text != '') DESC, r.id DESC LIMIT ? OFFSET ?""",

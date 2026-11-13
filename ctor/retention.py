@@ -80,10 +80,11 @@ async def lastday_tick(now=None):
         db.x("INSERT INTO ctor_promos(code, kind, value, max_uses, used, until, created) "
              "VALUES (?, 'percent', ?, 1, 0, ?, ?)", (code, pct, expires, db.now()))
         core.set_user_promo(uid, code)
-        price, _ = core.final_price(uid, "pro")  # для примера в тексте — Pro «навсегда»
+        bk = hosting.kind_of(b)
+        price, _ = core.final_price(uid, "start", bk)  # для примера в тексте — тариф Start
         await cbot.send(uid, tx("lastday_offer", pct=pct, code=code, hours=hours,
                                 username=html.escape(b["username"] or "?"),
-                                old=money(core.tariff_price("pro")), price=money(price)),
+                                old=money(core.tariff_price("start", bk)), price=money(price)),
                         cbot._buy_kb(b))
         done += 1
     return done
@@ -142,6 +143,8 @@ async def weekly_tick(now=None):
         return 0
     sent = 0
     for b in db.q("SELECT * FROM hosted_bots WHERE source='ctor' AND status='running' AND token IS NOT NULL"):
+        if hosting.kind_of(b) != "shop":
+            continue  # отчёт читает базу магазина (заказы, покупатели) — у других типов ботов её нет
         last = _ts(b["report_at"]) or _ts(b["started"]) or _ts(b["created"])
         if not last or now - last < timedelta(days=7):
             continue

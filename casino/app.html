@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>{{BRAND}}</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{
+  --bg:#0b0710; --bg2:#140c1c; --card:#1a1024; --card2:#241532; --line:#33204a;
+  --text:#f4eefa; --mute:#9d8bb3; --acc:#c01c4d; --acc2:#7a2cff; --good:#2fd68a; --bad:#ff4d6d; --gold:#ffc24d;
+  --r:16px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 -apple-system,"Segoe UI",Roboto,sans-serif;overscroll-behavior:none}
+body{min-height:100vh;padding-bottom:84px;background:var(--bg)}
+button{font:inherit;color:inherit;border:0;cursor:pointer}
+input{font:inherit;color:var(--text)}
+.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:10px;padding:12px 16px;background:rgba(11,7,16,.86);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.logo{font-weight:800;letter-spacing:.5px;font-size:18px;color:#ff5c85;flex:1}
+.bal{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:7px 8px 7px 14px;font-weight:700}
+.bal b{font-variant-numeric:tabular-nums}
+.plus{background:linear-gradient(135deg,var(--acc),var(--acc2));width:26px;height:26px;border-radius:50%;font-weight:800;line-height:26px;text-align:center}
+main{padding:16px;max-width:560px;margin:0 auto}
+h2{margin:18px 0 10px;font-size:19px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.tile{position:relative;height:118px;border-radius:var(--r);padding:14px;text-align:left;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;border:1px solid rgba(255,255,255,.08);transition:transform .15s}
+.tile:active{transform:scale(.97)}
+.tile .ic{position:absolute;top:8px;right:12px;font-size:44px;filter:drop-shadow(0 4px 10px rgba(0,0,0,.45))}
+.tile b{font-size:17px}.tile small{color:rgba(255,255,255,.7)}
+.g1{background:linear-gradient(135deg,#5b1bd1,#2b0f66)}.g2{background:linear-gradient(135deg,#d11b59,#5b0f2c)}
+.g3{background:linear-gradient(135deg,#0e9f7a,#07403a)}.g4{background:linear-gradient(135deg,#cf6a12,#5a2a07)}
+.g5{background:linear-gradient(135deg,#2a62d6,#10265e)}.g6{background:linear-gradient(135deg,#a11bd1,#3b0f5a)}
+.g7{background:linear-gradient(135deg,#c9a014,#5a4207)}
+.hero{border-radius:20px;padding:20px;background:linear-gradient(135deg,#7a1240,#3a1070);border:1px solid rgba(255,255,255,.1);position:relative;overflow:hidden}
+.hero h1{margin:0 0 4px;font-size:22px}.hero p{margin:0;color:rgba(255,255,255,.75)}
+.hero .big{position:absolute;right:-6px;bottom:-14px;font-size:92px;opacity:.9}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:12px}
+.row{display:flex;gap:10px;align-items:center}.row>*{flex:1}
+label{display:block;color:var(--mute);font-size:12px;margin:0 0 6px;text-transform:uppercase;letter-spacing:.6px}
+.inp{width:100%;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:12px;font-size:17px;font-weight:700;outline:none}
+.inp:focus{border-color:var(--acc2)}
+.chips{display:flex;gap:6px;margin-top:8px}.chips button{flex:1;background:var(--card2);border-radius:10px;padding:8px 0;font-size:13px;color:var(--mute)}
+.chips button:active{background:var(--line)}
+.btn{width:100%;border-radius:14px;padding:15px;font-weight:800;font-size:16px;background:linear-gradient(135deg,var(--acc),var(--acc2))}
+.btn:disabled{opacity:.45}.btn.green{background:linear-gradient(135deg,#17b978,#0b7a56)}
+.btn.ghost{background:var(--card2)}
+.seg{display:flex;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:3px;gap:3px}
+.seg button{flex:1;padding:10px 4px;border-radius:9px;background:transparent;color:var(--mute);font-weight:700}
+.seg button.on{background:linear-gradient(135deg,var(--acc),var(--acc2));color:#fff}
+.back{background:none;color:var(--mute);padding:6px 0;font-size:14px}
+.stage{min-height:170px;display:flex;align-items:center;justify-content:center;text-align:center;border-radius:var(--r);background:var(--bg2);border:1px solid var(--line);margin-bottom:12px;position:relative;overflow:hidden}
+.num{font-size:54px;font-weight:900;font-variant-numeric:tabular-nums}
+.win{color:var(--good)}.lose{color:var(--bad)}.mute{color:var(--mute)}
+.res{font-size:14px;margin-top:6px;min-height:20px}
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;gap:4px;padding:8px 12px calc(8px + env(safe-area-inset-bottom));background:rgba(11,7,16,.92);backdrop-filter:blur(14px);border-top:1px solid var(--line)}
+.tabs button{flex:1;padding:9px 0;border-radius:12px;background:transparent;color:var(--mute);font-size:12px;font-weight:700}
+.tabs button span{display:block;font-size:20px}.tabs button.on{background:var(--card2);color:#fff}
+.toast{position:fixed;left:16px;right:16px;top:70px;z-index:99;background:#2a0f1a;border:1px solid var(--bad);color:#ffd0d8;padding:12px 14px;border-radius:12px;animation:fade .25s}
+@keyframes fade{from{opacity:0;transform:translateY(-8px)}}
+.mines{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:12px}
+.cell{aspect-ratio:1;border-radius:12px;background:var(--card2);border:1px solid var(--line);font-size:26px;display:flex;align-items:center;justify-content:center;transition:transform .12s,background .2s}
+.cell:active:not(:disabled){transform:scale(.93)}
+.cell.safe{background:linear-gradient(135deg,#0f6f4d,#14a371)}.cell.boom{background:linear-gradient(135deg,#a1103a,#ff4d6d)}.cell.ghost{opacity:.5}
+.mult{font-size:12px;color:var(--mute)}
+.board{position:relative;margin:0 auto;width:100%;max-width:340px}
+.peg{position:absolute;width:6px;height:6px;border-radius:50%;background:#7e63a5;transform:translate(-50%,-50%)}
+.ball{position:absolute;width:14px;height:14px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#fff,#ff4d6d);transform:translate(-50%,-50%);transition:left .17s linear,top .17s ease-in}
+.slots{display:flex;gap:2px;margin-top:6px}.slots div{flex:1;text-align:center;font-size:9px;padding:5px 0;border-radius:5px;font-weight:700;color:#14061c}
+.slots div.hit{animation:pop .5s}@keyframes pop{50%{transform:scale(1.35)}}
+.rb{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}
+.rb button{padding:9px 0;border-radius:8px;font-weight:800;font-size:13px;position:relative;color:#fff}
+.rb .red{background:#a01234}.rb .black{background:#241a30}.rb .green{background:#0d7d57}
+.rb button .pin{position:absolute;top:-6px;right:-3px;background:var(--gold);color:#1a1024;font-size:10px;border-radius:8px;padding:1px 5px}
+.out{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
+.out button{padding:11px 4px;border-radius:10px;background:var(--card2);font-weight:700;font-size:13px;position:relative}
+.out button .pin{position:absolute;top:-6px;right:-3px;background:var(--gold);color:#1a1024;font-size:10px;border-radius:8px;padding:1px 5px}
+.reel{display:flex;gap:8px;transition:transform 3.2s cubic-bezier(.12,.7,.1,1);will-change:transform}
+.reel div{flex:0 0 70px;height:70px;border-radius:14px;background:var(--card2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:20px;color:var(--gold)}
+.reel div.hit{border-color:var(--gold);border-width:2px}
+.pointer{position:absolute;left:50%;top:0;bottom:0;width:2px;background:var(--gold);z-index:2}
+.kv{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}.kv:last-child{border:0}
+.mono{font:12px ui-monospace,Consolas,monospace;word-break:break-all;color:var(--mute)}
+.hist{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+.legal{margin:22px 0 8px;color:var(--mute);font-size:12px;text-align:center}
+.coin3d{font-size:80px;transition:transform .9s}
+</style>
+</head>
+<body>
+<div class="top"><div class="logo" id="brand">{{BRAND}}</div>
+  <div class="bal" id="balbox"><b id="bal">…</b><span class="mute">CRX</span><span class="plus" id="plus">+</span></div></div>
+<main id="view"></main>
+<nav class="tabs">
+  <button data-t="home" class="on"><span>🎰</span>Игры</button>
+  <button data-t="daily"><span>🎁</span>Кейс</button>
+  <button data-t="profile"><span>👤</span>Профиль</button>
+</nav>
+<script>
+"use strict";
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor("#0b0710"); tg.setBackgroundColor("#0b0710"); } catch (e) {} }
+const $ = (s, el = document) => el.querySelector(s);
+const view = $("#view");
+let ME = null, tab = "home", leave = null;
+const fmt = n => Number(n).toLocaleString("ru-RU").replace(/ /g, " ");
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function h(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) e.setAttribute(k, v);
+  }
+  for (const c of kids.flat()) e.append(c instanceof Node ? c : document.createTextNode(c ?? ""));
+  return e;
+}
+function toast(msg) {
+  const t = h("div", { class: "toast" }, msg); document.body.append(t);
+  try { tg && tg.HapticFeedback.notificationOccurred("error"); } catch (e) {}
+  setTimeout(() => t.remove(), 2800);
+}
+async function api(path, body = {}) {
+  let r;
+  try {
+    r = await fetch("api/" + path, { method: "POST", headers: { "Content-Type": "application/json", "X-Init-Data": tg ? tg.initData : "" }, body: JSON.stringify(body) });
+  } catch (e) { toast("Нет соединения"); throw e; }
+  const d = await r.json().catch(() => ({ ok: false, error: "Ошибка сервера" }));
+  if (!d.ok) { toast(d.error || "Ошибка"); throw new Error(d.error); }
+  if (d.balance != null) setBal(d.balance);
+  return d;
+}
+function setBal(v) { if (ME) ME.balance = v; $("#bal").textContent = fmt(v); }
+function buzz(k = "light") { try { tg && tg.HapticFeedback.impactOccurred(k); } catch (e) {} }
+
+/* ---------- ставка ---------- */
+function betBox(initial = 10) {
+  const inp = h("input", { class: "inp", type: "number", inputmode: "numeric", value: initial, min: ME.min_bet, max: ME.max_bet });
+  const set = v => { inp.value = Math.max(ME.min_bet, Math.min(ME.max_bet, Math.floor(v))); };
+  const box = h("div", { class: "card" }, h("label", {}, "Ставка, CRX"), inp,
+    h("div", { class: "chips" },
+      h("button", { onclick: () => set(ME.min_bet) }, "мин"), h("button", { onclick: () => set(inp.value / 2) }, "½"),
+      h("button", { onclick: () => set(inp.value * 2) }, "×2"), h("button", { onclick: () => set(Math.min(ME.balance, ME.max_bet)) }, "макс")));
+  box.val = () => Math.floor(Number(inp.value) || 0);
+  box.set = set;
+  return box;
+}
+
+/* ---------- навигация ---------- */
+async function nav(t) {
+  if (leave) { leave(); leave = null; }
+  tab = t;
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === t));
+  view.replaceChildren();
+  if (t !== "home") { try { await refreshMe(); } catch (e) {} if (tab !== t) return; view.replaceChildren(); }
+  ({ home: home, daily: dailyView, profile: profileView })[t]();
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => nav(b.dataset.t));
+$("#balbox").onclick = () => nav("profile");
+
+const GAMES = [
+  ["crash", "Краш", "Забери до вылета", "📈", "g2"], ["mines", "Мины", "Не наступи", "💣", "g3"],
+  ["plinko", "Плинко", "Шарик падает", "🔮", "g6"], ["roulette", "Рулетка", "37 чисел", "👁", "g2"],
+  ["dice", "Дайс", "Свой шанс", "🎲", "g5"], ["limbo", "Лимбо", "Выбери иксы", "🚀", "g1"],
+  ["coin", "Монетка", "Орёл или решка", "🪙", "g7"], ["daily", "Бонус-кейс", "Раз в сутки", "🎁", "g4"],
+];
+const SCREENS = {};
+
+function home() {
+  view.append(
+    h("div", { class: "hero" }, h("h1", {}, "Проклятая удача"), h("p", {}, "Все раунды честные и проверяемые"), h("div", { class: "big" }, "🩸")),
+    h("h2", {}, "Игры"),
+    h("div", { class: "grid" }, GAMES.map(([k, name, sub, ic, g]) =>
+      h("button", { class: "tile " + g, onclick: () => k === "daily" ? nav("daily") : openGame(k) },
+        h("div", { class: "ic" }, ic), h("b", {}, name), h("small", {}, sub)))),
+    h("div", { class: "legal" }, "CRX — внутриигровая валюта. Не выводится и не обменивается на деньги. Только 18+."));
+  if (ME.resume) { const r = ME.resume; if (r.game === "crash" || r.game === "mines") openGame(r.game, true); }
+}
+function openGame(k, resume) {
+  if (leave) { leave(); leave = null; }
+  view.replaceChildren(h("button", { class: "back", onclick: () => nav("home") }, "‹ Назад"));
+  SCREENS[k](resume);
+  window.scrollTo(0, 0);
+}
+async function refreshMe() { ME = await api("me"); setBal(ME.balance); }
+
+/* ---------- монетка ---------- */
+SCREENS.coin = () => {
+  let side = "h"; const bet = betBox(); let busy = false;
+  const coin = h("div", { class: "coin3d" }, "🪙"), res = h("div", { class: "res" }, "Выигрыш ×" + (2 * ME.rtp).toFixed(2));
+  const seg = h("div", { class: "seg" }, h("button", { class: "on", onclick: e => pick("h", e) }, "🦅 Орёл"), h("button", { onclick: e => pick("t", e) }, "🌑 Решка"));
+  function pick(s, e) { side = s; seg.querySelectorAll("button").forEach(b => b.classList.remove("on")); e.target.classList.add("on"); }
+  const go = h("button", { class: "btn", onclick: async () => {
+    if (busy) return; busy = true; go.disabled = true; buzz();
+    try {
+      coin.style.transform = "rotateY(1800deg)"; const r = await api("coin", { bet: bet.val(), side }); await sleep(900);
+      coin.style.transition = "none"; coin.style.transform = "rotateY(0)"; coin.offsetWidth; coin.style.transition = "";
+      coin.textContent = r.flip === "h" ? "🦅" : "🌑";
+      res.className = "res " + (r.win ? "win" : "lose"); res.textContent = r.win ? "+" + fmt(r.payout - r.bet) + " CRX" : "−" + fmt(r.bet) + " CRX";
+      buzz(r.win ? "medium" : "light");
+    } catch (e) { coin.style.transform = ""; }
+    busy = false; go.disabled = false;
+  } }, "Бросить");
+  view.append(h("h2", {}, "🪙 Монетка"), h("div", { class: "stage" }, h("div", {}, coin, res)), bet, seg, h("div", { style: "height:12px" }), go);
+};
+
+/* ---------- дайс ---------- */
+SCREENS.dice = () => {
+  let mode = "under", chance = 50; const bet = betBox(); let busy = false;
+  const roll = h("div", { class: "num" }, "50.00"), res = h("div", { class: "res mute" }, "");
+  const slider = h("input", { type: "range", min: 1, max: 95, value: 50, style: "width:100%;accent-color:#c01c4d" });
+  const info = h("div", { class: "row" });
+  const bar = h("div", { style: "height:10px;border-radius:6px;background:#2a1a3a;position:relative;margin:14px 0" });
+  const zone = h("div", { style: "position:absolute;top:0;bottom:0;border-radius:6px;background:linear-gradient(90deg,#17b978,#0b7a56)" });
+  const mark = h("div", { style: "position:absolute;top:-6px;width:4px;height:22px;background:#fff;border-radius:2px;left:50%;transition:left .5s" });
+  bar.append(zone, mark);
+  function upd() {
+    chance = Number(slider.value); const m = ME.rtp * 100 / chance;
+    info.replaceChildren(h("div", {}, h("label", {}, "Шанс"), h("b", {}, chance + "%")), h("div", {}, h("label", {}, "Множитель"), h("b", {}, "×" + m.toFixed(2))),
+      h("div", {}, h("label", {}, "Выигрыш"), h("b", {}, fmt(Math.floor(bet.val() * m)))));
+    if (mode === "under") { zone.style.left = "0"; zone.style.width = chance + "%"; } else { zone.style.left = (100 - chance) + "%"; zone.style.width = chance + "%"; }
+  }
+  slider.oninput = upd; bet.addEventListener("input", upd); bet.addEventListener("click", upd);
+  const seg = h("div", { class: "seg" }, h("button", { class: "on", onclick: e => { mode = "under"; sw(e); } }, "Меньше"), h("button", { onclick: e => { mode = "over"; sw(e); } }, "Больше"));
+  function sw(e) { seg.querySelectorAll("button").forEach(b => b.classList.remove("on")); e.target.classList.add("on"); upd(); }
+  const go = h("button", { class: "btn", onclick: async () => {
+    if (busy) return; busy = true; go.disabled = true; buzz();
+    try {
+      const r = await api("dice", { bet: bet.val(), chance, mode }); mark.style.left = r.roll + "%"; await sleep(550);
+      roll.textContent = r.roll.toFixed(2); roll.className = "num " + (r.win ? "win" : "lose");
+      res.className = "res " + (r.win ? "win" : "lose"); res.textContent = r.win ? "+" + fmt(r.payout - r.bet) + " CRX" : "−" + fmt(r.bet) + " CRX";
+    } catch (e) {}
+    busy = false; go.disabled = false; upd();
+  } }, "Бросить кости");
+  view.append(h("h2", {}, "🎲 Дайс"), h("div", { class: "stage" }, h("div", {}, roll, res)), bar, bet, h("div", { class: "card" }, seg, h("div", { style: "height:12px" }), slider, h("div", { style: "height:10px" }), info), go);
+  upd();
+};
+
+/* ---------- лимбо ---------- */
+SCREENS.limbo = () => {
+  const bet = betBox(); let busy = false;
+  const target = h("input", { class: "inp", type: "number", step: "0.01", value: "2.00", min: 1.01, max: 1000 });
+  const num = h("div", { class: "num" }, "1.00×"), res = h("div", { class: "res mute" }, ""), info = h("div", { class: "mute", style: "margin:8px 0" });
+  const upd = () => { const t = Number(target.value) || 0; info.textContent = t >= 1.01 ? `Шанс ${(ME.rtp / t * 100).toFixed(2)}% · выигрыш ${fmt(Math.floor(bet.val() * t))} CRX` : ""; };
+  target.oninput = upd; upd();
+  const go = h("button", { class: "btn", onclick: async () => {
+    if (busy) return; busy = true; go.disabled = true; buzz(); num.className = "num";
+    try {
+      const r = await api("limbo", { bet: bet.val(), target: Number(target.value) });
+      const steps = 22; for (let i = 1; i <= steps; i++) { num.textContent = (1 + (r.point - 1) * Math.pow(i / steps, 2)).toFixed(2) + "×"; await sleep(35); }
+      num.textContent = r.point.toFixed(2) + "×"; num.className = "num " + (r.win ? "win" : "lose");
+      res.className = "res " + (r.win ? "win" : "lose"); res.textContent = r.win ? "+" + fmt(r.payout - r.bet) + " CRX" : "Не долетело до ×" + r.mult;
+    } catch (e) {}
+    busy = false; go.disabled = false;
+  } }, "Запустить");
+  view.append(h("h2", {}, "🚀 Лимбо"), h("div", { class: "stage" }, h("div", {}, num, res)), bet, h("div", { class: "card" }, h("label", {}, "Целевой множитель"), target, info), go);
+};
+
+/* ---------- краш ---------- */
+SCREENS.crash = async (resume) => {
+  const bet = betBox(); const auto = h("input", { class: "inp", type: "number", step: "0.01", placeholder: "авто-вывод, напр. 2.00" });
+  const num = h("div", { class: "num" }, "1.00×"), res = h("div", { class: "res mute" }, "Нажмите «Старт»"); let timer = null, raf = null, live = null;
+  const go = h("button", { class: "btn" }, "Старт"); const m = x => Math.floor(100 * Math.exp(0.08 * x)) / 100;
+  function stop() { clearInterval(timer); cancelAnimationFrame(raf); timer = null; live = null; }
+  leave = stop;
+  function finish(s) {
+    stop(); num.textContent = s.mult.toFixed(2) + "×"; num.className = "num " + (s.status === "cashed" ? "win" : "lose");
+    res.className = "res " + (s.status === "cashed" ? "win" : "lose");
+    res.textContent = s.status === "cashed" ? "+" + fmt(s.payout - live0.bet) + " CRX" : "Вылетело на ×" + s.point.toFixed(2);
+    go.textContent = "Старт"; go.className = "btn"; go.disabled = false; go.onclick = start; buzz(s.status === "cashed" ? "medium" : "heavy");
+  }
+  let live0 = null;
+  function run(round) {
+    live0 = round; live = { t0: performance.now() - round.elapsed * 1000 }; num.className = "num";
+    go.textContent = "Забрать"; go.className = "btn green"; go.disabled = false; res.className = "res mute"; res.textContent = "Ставка " + fmt(round.bet) + " CRX";
+    const tick = () => { if (!live) return; num.textContent = m((performance.now() - live.t0) / 1000).toFixed(2) + "×"; raf = requestAnimationFrame(tick); }; tick();
+    timer = setInterval(async () => { try { const s = await api("crash/state"); if (s.status !== "open") finish(s); } catch (e) { stop(); } }, 450);
+    go.onclick = async () => { go.disabled = true; try { finish(await api("crash/cash")); } catch (e) { go.disabled = false; } };
+  }
+  async function start() {
+    go.disabled = true; buzz();
+    try { const a = auto.value ? Number(auto.value) : null; const r = await api("crash/start", { bet: bet.val(), auto: a }); run({ bet: r.bet, elapsed: 0 }); }
+    catch (e) { go.disabled = false; }
+  }
+  go.onclick = start;
+  view.append(h("h2", {}, "📈 Краш"), h("div", { class: "stage" }, h("div", {}, num, res)), bet, h("div", { class: "card" }, h("label", {}, "Авто-вывод (необязательно)"), auto), go);
+  if (resume && ME.resume && ME.resume.game === "crash") { bet.set(ME.resume.bet); run({ bet: ME.resume.bet, elapsed: ME.resume.elapsed }); }
+};
+
+/* ---------- мины ---------- */
+SCREENS.mines = (resume) => {
+  const bet = betBox(); let count = 3, active = false, busy = false;
+  const info = h("div", { class: "res mute", style: "text-align:center;margin-bottom:10px" }, "Выберите число мин и начните");
+  const gridEl = h("div", { class: "mines" }); const cells = [];
+  for (let i = 0; i < 25; i++) { const c = h("button", { class: "cell", disabled: true, onclick: () => open(i) }, ""); cells.push(c); gridEl.append(c); }
+  const cnt = h("div", { class: "seg" }, [1, 3, 5, 10, 24].map(n => h("button", { class: n === 3 ? "on" : "", onclick: e => { if (active) return; count = n; cnt.querySelectorAll("button").forEach(b => b.classList.remove("on")); e.target.classList.add("on"); } }, String(n))));
+  const go = h("button", { class: "btn" }, "Начать игру");
+  function reset() { cells.forEach(c => { c.className = "cell"; c.textContent = ""; c.disabled = true; }); }
+  function setActive(on) { active = on; cells.forEach(c => { if (!c.classList.contains("safe")) c.disabled = !on; }); }
+  async function start() {
+    go.disabled = true; buzz();
+    try { const r = await api("mines/start", { bet: bet.val(), mines: count }); reset(); setActive(true); current(r.bet, 1, 0, r.next); }
+    catch (e) { go.disabled = false; }
+  }
+  function current(b, mult, opened, next) {
+    info.className = "res"; info.textContent = opened ? `×${mult.toFixed(2)} · сейчас ${fmt(Math.floor(b * mult))} CRX · следующая ×${next.toFixed(2)}` : `Откройте клетку · первая даст ×${next.toFixed(2)}`;
+    go.className = "btn green"; go.textContent = opened ? `Забрать ${fmt(Math.floor(b * mult))} CRX` : "Откройте клетку"; go.disabled = !opened;
+    go.onclick = cash; go.dataset.bet = b;
+  }
+  function end(r, lost) {
+    setActive(false); (r.mines || []).forEach(i => { if (!cells[i].classList.contains("boom")) { cells[i].classList.add("ghost"); cells[i].textContent = "💣"; } });
+    info.className = "res " + (lost ? "lose" : "win"); info.textContent = lost ? "💥 Мина! Ставка потеряна" : "Забрано " + fmt(r.payout) + " CRX (×" + r.mult.toFixed(2) + ")";
+    go.className = "btn"; go.textContent = "Играть снова"; go.disabled = false; go.onclick = start; buzz(lost ? "heavy" : "medium");
+  }
+  async function open(i) {
+    if (busy) return; busy = true;
+    try {
+      const r = await api("mines/open", { cell: i });
+      if (r.status === "lost") { cells[i].className = "cell boom"; cells[i].textContent = "💥"; end(r, true); }
+      else { cells[i].className = "cell safe"; cells[i].textContent = "💎"; cells[i].disabled = true; buzz();
+        if (r.status === "cashed") end(r, false); else current(Number(go.dataset.bet), r.mult, r.mult > 1 ? 1 : 0, r.next); if (r.status === "open") { go.textContent = `Забрать ${fmt(r.payout_now)} CRX`; info.textContent = `×${r.mult.toFixed(2)} · следующая ×${r.next.toFixed(2)}`; } }
+    } catch (e) {}
+    busy = false;
+  }
+  async function cash() { go.disabled = true; try { end(await api("mines/cash"), false); } catch (e) { go.disabled = false; } }
+  go.onclick = start;
+  view.append(h("h2", {}, "💣 Мины"), info, gridEl, bet, h("div", { class: "card" }, h("label", {}, "Количество мин"), cnt), go);
+  if (resume && ME.resume && ME.resume.game === "mines") {
+    const r = ME.resume; bet.set(r.bet); count = r.count; setActive(true);
+    r.open.forEach(i => { cells[i].className = "cell safe"; cells[i].textContent = "💎"; cells[i].disabled = true; });
+    current(r.bet, r.mult, r.open.length, r.next); if (r.open.length) { go.disabled = false; go.textContent = `Забрать ${fmt(Math.floor(r.bet * r.mult))} CRX`; }
+  }
+};
+
+/* ---------- плинко ---------- */
+SCREENS.plinko = () => {
+  let rows = 12, risk = "medium", busy = false; const bet = betBox();
+  const boardWrap = h("div", { class: "stage", style: "display:block;padding:14px 10px 10px" }); const res = h("div", { class: "res mute", style: "text-align:center" }, "");
+  function color(m) { return m >= 10 ? "#ff4d6d" : m >= 3 ? "#ff9f43" : m >= 1.2 ? "#ffd166" : m >= 1 ? "#b8e986" : "#7bd3ea"; }
+  let ball = null, slotEls = [];
+  function draw() {
+    boardWrap.replaceChildren(); const W = 320, H = 20 * rows + 20; const board = h("div", { class: "board", style: `height:${H}px;max-width:${W}px` });
+    const gap = W / (rows + 2);
+    for (let r = 0; r < rows; r++) for (let c = 0; c <= r + 2; c++) board.append(h("div", { class: "peg", style: `left:${(W / 2 + (c - (r + 2) / 2) * gap) / W * 100}%;top:${r * 20 + 12}px` }));
+    ball = h("div", { class: "ball", style: `left:50%;top:-6px;opacity:0` }); board.append(ball);
+    const t = ME.plinko[rows + ":" + risk]; const slots = h("div", { class: "slots" }, t.map(m => h("div", { style: "background:" + color(m) }, m + "×"))); slotEls = [...slots.children];
+    boardWrap.append(board, slots, res); board.dataset.gap = gap; board.dataset.w = W;
+  }
+  const rs = h("div", { class: "seg" }, [8, 10, 12, 14, 16].map(n => h("button", { class: n === 12 ? "on" : "", onclick: e => { if (busy) return; rows = n; sel(rs, e); draw(); } }, String(n))));
+  const ks = h("div", { class: "seg" }, [["low", "Низкий"], ["medium", "Средний"], ["high", "Высокий"]].map(([k, n]) => h("button", { class: k === "medium" ? "on" : "", onclick: e => { if (busy) return; risk = k; sel(ks, e); draw(); } }, n)));
+  const sel = (g, e) => { g.querySelectorAll("button").forEach(b => b.classList.remove("on")); e.target.classList.add("on"); };
+  const go = h("button", { class: "btn", onclick: async () => {
+    if (busy) return; busy = true; go.disabled = true; buzz();
+    try {
+      const r = await api("plinko", { bet: bet.val(), rows, risk }); const board = ball.parentElement, gap = Number(board.dataset.gap), W = Number(board.dataset.w);
+      ball.style.transition = "none"; ball.style.left = "50%"; ball.style.top = "-6px"; ball.style.opacity = 1; ball.offsetWidth; ball.style.transition = "";
+      let pos = 0; for (let i = 0; i < rows; i++) { pos += r.path[i]; ball.style.top = (i * 20 + 12) + "px"; ball.style.left = ((W / 2 + (pos - (i + 1) / 2 + (i + 1) / 2 - (i + 1) / 2) * gap - (i + 1) * gap / 2 + gap * 0) / W * 100) + "%"; await sleep(180); }
+      ball.style.top = (rows * 20 + 4) + "px"; ball.style.left = ((r.slot + .5) / (rows + 1) * 100) + "%"; await sleep(220);
+      slotEls[r.slot].classList.remove("hit"); slotEls[r.slot].offsetWidth; slotEls[r.slot].classList.add("hit");
+      res.className = "res " + (r.win ? "win" : "lose"); res.textContent = `×${r.mult} → ` + (r.payout >= r.bet ? "+" + fmt(r.payout - r.bet) : "−" + fmt(r.bet - r.payout)) + " CRX"; buzz("medium");
+    } catch (e) {}
+    busy = false; go.disabled = false;
+  } }, "Бросить шарик");
+  view.append(h("h2", {}, "🔮 Плинко"), boardWrap, bet, h("div", { class: "card" }, h("label", {}, "Рядов"), rs, h("div", { style: "height:10px" }), h("label", {}, "Риск"), ks), go);
+  draw();
+};
+
+/* ---------- рулетка ---------- */
+SCREENS.roulette = () => {
+  const reds = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]); let chip = 10, busy = false; const stakes = new Map();
+  const wheel = h("div", { class: "num" }, "?"), res = h("div", { class: "res mute" }, "Поставьте фишки");
+  const key = (k, n) => k + ":" + (n ?? ""); const pins = new Map();
+  function toggle(k, n, btn) {
+    stakes.set(key(k, n), { kind: k, number: n, amount: (stakes.get(key(k, n))?.amount || 0) + chip });
+    let p = pins.get(btn); if (!p) { p = h("span", { class: "pin" }); btn.append(p); pins.set(btn, p); }
+    p.textContent = stakes.get(key(k, n)).amount; total(); buzz();
+  }
+  function total() { const t = [...stakes.values()].reduce((a, b) => a + b.amount, 0); sum.textContent = t ? "Ставка: " + fmt(t) + " CRX" : "Поставьте фишки"; return t; }
+  const sum = h("div", { class: "mute", style: "text-align:center;margin:8px 0" }); total();
+  const board = h("div", { class: "rb" }, [h("button", { class: "green", style: "grid-column:span 6", onclick: e => toggle("num", 0, e.currentTarget) }, "0"),
+    ...Array.from({ length: 36 }, (_, i) => i + 1).map(n => h("button", { class: reds.has(n) ? "red" : "black", onclick: e => toggle("num", n, e.currentTarget) }, String(n)))]);
+  const outs = h("div", { class: "out" }, [["red", "🔴 Красное ×2"], ["black", "⚫ Чёрное ×2"], ["even", "Чёт ×2"], ["odd", "Нечет ×2"], ["low", "1–18 ×2"], ["high", "19–36 ×2"], ["d1", "1–12 ×3"], ["d2", "13–24 ×3"], ["d3", "25–36 ×3"]]
+    .map(([k, n]) => h("button", { onclick: e => toggle(k, null, e.currentTarget) }, n)));
+  const chips = h("div", { class: "seg" }, [1, 10, 50, 100, 500].map(v => h("button", { class: v === 10 ? "on" : "", onclick: e => { chip = v; chips.querySelectorAll("button").forEach(b => b.classList.remove("on")); e.target.classList.add("on"); } }, String(v))));
+  const clear = () => { stakes.clear(); pins.forEach(p => p.remove()); pins.clear(); total(); };
+  const go = h("button", { class: "btn", onclick: async () => {
+    if (busy) return; if (!stakes.size) return toast("Сделайте ставку"); busy = true; go.disabled = true; buzz();
+    try {
+      const r = await api("roulette", { bets: [...stakes.values()] });
+      for (let i = 0; i < 14; i++) { wheel.textContent = Math.floor(Math.random() * 37); await sleep(45 + i * 12); }
+      wheel.textContent = r.number; wheel.style.color = r.color === "red" ? "#ff4d6d" : r.color === "green" ? "#2fd68a" : "#cfc4dd";
+      res.className = "res " + (r.payout > r.bet ? "win" : "lose"); res.textContent = r.payout ? `Выплата ${fmt(r.payout)} CRX (${r.payout >= r.bet ? "+" : "−"}${fmt(Math.abs(r.payout - r.bet))})` : "Не повезло";
+      clear();
+    } catch (e) {}
+    busy = false; go.disabled = false;
+  } }, "Крутить");
+  view.append(h("h2", {}, "👁 Рулетка"), h("div", { class: "stage" }, h("div", {}, wheel, res)), h("div", { class: "card" }, h("label", {}, "Номинал фишки"), chips, sum, board, outs),
+    h("div", { class: "row" }, h("button", { class: "btn ghost", onclick: clear }, "Сбросить"), go));
+};
+
+/* ---------- кейс ---------- */
+function dailyView() {
+  const prizes = ME.daily_prizes; view.append(h("h2", {}, "🎁 Ежедневный кейс"));
+  const reel = h("div", { class: "reel" }); const stage = h("div", { class: "stage", style: "min-height:110px;justify-content:flex-start;padding:20px 0" }, h("div", { class: "pointer" }), reel);
+  const info = h("div", { class: "res mute", style: "text-align:center;margin-bottom:12px" });
+  const items = []; for (let i = 0; i < 60; i++) items.push(prizes[Math.floor(Math.random() * Math.min(prizes.length, 5 + (i % 3 === 0 ? 4 : 0)))]);
+  const go = h("button", { class: "btn" }, "Открыть бесплатно");
+  function fill(win) { reel.replaceChildren(...items.map((p, i) => h("div", { class: i === 50 ? "hit" : "" }, i === 50 ? win : p))); }
+  fill("?");
+  const left = ME.daily_left;
+  const timer = () => { if (left <= 0) { info.textContent = "Кейс готов! Можно забрать."; return; } go.disabled = true; info.textContent = `Следующий кейс через ${Math.floor(left / 3600)} ч ${Math.floor(left % 3600 / 60)} мин`; };
+  timer();
+  go.onclick = async () => {
+    go.disabled = true; buzz();
+    try {
+      const r = await api("daily"); fill(r.prize); reel.style.transition = "none"; reel.style.transform = "translateX(0)"; reel.offsetWidth; reel.style.transition = "";
+      const x = 50 * 78 + 35 - stage.clientWidth / 2; reel.style.transform = `translateX(-${x}px)`; await sleep(3400);
+      info.className = "res win"; info.textContent = `🎉 +${r.prize} CRX`; ME.daily_left = r.left; buzz("heavy");
+    } catch (e) { go.disabled = false; }
+  };
+  view.append(stage, info, go, h("div", { class: "legal" }, "Призы от " + prizes[0] + " до " + prizes[prizes.length - 1] + " CRX. Кейс обновляется раз в 24 часа."));
+}
+
+/* ---------- профиль ---------- */
+function profileView() {
+  const u = ME; const kv = (k, v) => h("div", { class: "kv" }, h("span", { class: "mute" }, k), h("b", {}, v));
+  const buy = u.buy_url ? h("button", { class: "btn", onclick: () => tg ? tg.openTelegramLink(u.buy_url) : window.open(u.buy_url) }, "➕ Купить CRX") : null;
+  const hist = h("div", {});
+  view.append(h("h2", {}, "👤 " + (u.name || "Игрок")),
+    h("div", { class: "card" }, h("label", {}, "Баланс"), h("div", { class: "num", style: "font-size:40px" }, fmt(u.balance) + " CRX"), buy ? h("div", { style: "margin-top:12px" }, buy) : "",
+      buy ? h("div", { class: "legal", style: "margin:10px 0 0" }, "Баланс начисляет владелец после оплаты — напишите по кнопке выше") : ""),
+    h("div", { class: "card" }, kv("Игр сыграно", fmt(u.stats.games)), kv("Поставлено", fmt(u.stats.wagered)), kv("Выиграно", fmt(u.stats.won)),
+      kv("Друзей приглашено", u.ref.count), kv("Заработано с друзей", fmt(u.ref.earned) + " CRX")),
+    h("div", { class: "card" }, h("b", {}, "👥 Друзья"), h("div", { class: "mute", style: "margin-top:6px" }, `Получайте ${u.ref.percent}% с каждой покупки CRX друга. Ссылка — в боте, кнопка «Друзья».`)),
+    h("h2", {}, "Честная игра"),
+    h("div", { class: "card" }, h("div", { class: "mute" }, "Хэш сида сервера"), h("div", { class: "mono", id: "fh" }, u.fair.hash), h("div", { class: "mute", style: "margin-top:8px" }, "Клиентский сид · раундов"), h("div", { class: "mono", id: "fc" }, u.fair.client_seed + " · " + u.fair.nonce),
+      h("div", { class: "mute", style: "margin:10px 0" }, `Результат каждого раунда считается из сида сервера, вашего сида и номера раунда (HMAC-SHA256). После смены сида мы раскрываем прошлый — любой раунд можно проверить. Возврат игрокам ≈ ${(u.rtp * 100).toFixed(0)}%.`),
+      h("button", { class: "btn ghost", id: "rot", onclick: async () => { try { const r = await api("fair/rotate"); $("#fh").textContent = r.hash; $("#fc").textContent = r.client_seed + " · 0";
+        view.append(h("div", { class: "card" }, h("b", {}, "Раскрыт прошлый сид"), h("div", { class: "mono" }, r.revealed), h("div", { class: "mute" }, "клиентский: " + r.old_client_seed + ", раундов: " + r.old_nonce))); } catch (e) {} } }, "Сменить сид и раскрыть прошлый")),
+    h("h2", {}, "История"), hist, h("div", { class: "legal" }, "CRX — внутриигровая валюта без денежной стоимости. Не выводится и не обменивается. Только 18+."));
+  api("history").then(d => hist.append(...d.history.map(x => h("div", { class: "hist" }, h("span", {}, `${x.game} · ${fmt(x.bet)}`), h("b", { class: x.payout >= x.bet ? "win" : "lose" }, (x.payout >= x.bet ? "+" : "−") + fmt(Math.abs(x.payout - x.bet)))))), () => {});
+}
+
+$("#plus").onclick = e => { e.stopPropagation(); if (ME && ME.buy_url) tg ? tg.openTelegramLink(ME.buy_url) : window.open(ME.buy_url); else nav("profile"); };
+(async () => {
+  try { await refreshMe(); document.title = ME.brand; $("#brand").textContent = ME.brand; nav("home"); }
+  catch (e) { view.append(h("div", { class: "card" }, "Откройте игру через бота в Telegram.")); }
+})();
+</script>
+</body>
+</html>

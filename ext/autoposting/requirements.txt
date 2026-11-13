@@ -1,0 +1,6 @@
+aiogram>=3.25
+aiohttp>=3.9
+aiosqlite>=0.20
+Telethon>=1.36
+cryptography>=42
+python-dotenv>=1.0

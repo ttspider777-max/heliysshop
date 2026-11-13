@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Новогодняя тема — демо</title>
+<!-- Только для просмотра на компьютере: ny-demo.html?p=ctor (конструктор) или ?p=index (магазин). На сервер не заливается. -->
+<script>
+  try { sessionStorage.removeItem("ny-splash"); } catch (e) {}
+  const p = new URLSearchParams(location.search).get("p") === "index" ? "index.html" : "ctor.html";
+  fetch(p, { cache: "no-store" }).then((r) => r.text()).then((t) => {
+    document.open();
+    document.write(t.replace("</body>", '<script src="ny.js?' + Date.now() + '"><\/script></body>'));
+    document.close();
+  });
+</script>

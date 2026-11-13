@@ -7,6 +7,7 @@ data/bots/bot_<id>.db. Основной бот следит за процесс�
 После перезапуска сервера все боты со статусом running поднимаются автоматически.
 """
 import asyncio
+import html
 import json
 import logging
 import os
@@ -90,6 +91,40 @@ def cfg_path(bid):
     return os.path.join(BOTS_DIR, f"bot_{bid}.json")
 
 
+CASINO_MAIN = os.path.join(ROOT, "casino_main.py")
+
+
+def kind_of(b):
+    """Тип бота: shop / casino / внешний (chat, autopost, savemod) — см. ctor/kinds.py."""
+    from ctor import kinds
+    return kinds.kind_of(b)
+
+
+def is_game(b):
+    """Бот из шаблона «🎰 Казино (CRX)»: запускается из casino_main.py, а не main.py."""
+    return kind_of(b) == "casino"
+
+
+def is_ext(b):
+    """Отдельный бот из папки ext/ (чат-менеджер, автопостинг, лиды, SaveMod, ChatGPT)."""
+    from ctor import kinds
+    return kinds.is_ext(kind_of(b))
+
+
+def ext_data_dir(bid):
+    return os.path.join(BOTS_DIR, f"ext_{bid}")
+
+
+def support_name(b):
+    """Ник из поля «поддержка» мастера (@ник, t.me/ник или ссылка) — на него ведёт кнопка «Купить CRX»."""
+    try:
+        raw = str(json.loads(b["cfg"] or "{}").get("support") or "")
+    except (KeyError, IndexError, TypeError, ValueError):
+        return ""
+    m = re.search(r"(?:t\.me/|@)?([A-Za-z][A-Za-z0-9_]{4,31})/?$", raw.strip())
+    return m.group(1) if m else ""
+
+
 def _write_cfg(b):
     """Настройки бота клиента — в отдельный файл (передаётся как `main.py --child <файл>`).
     Через переменные окружения их передавать нельзя: хостинг подменяет BOT_TOKEN / DB_PATH в дочерних процессах,
@@ -108,6 +143,8 @@ def _write_cfg(b):
         "port": child_port(b["id"]),
         "public_url": f"{base}/b/{b['id']}" if base else "",
     }
+    if is_game(b):
+        cfg["support"] = support_name(b)
     if "source" in b.keys() and b["source"] == "ctor":  # магазин из бота-конструктора
         from ctor import bot as ctor_bot
         from ctor import core as ctor_core
@@ -121,6 +158,44 @@ def _write_cfg(b):
         json.dump(cfg, f)
     os.replace(path + ".tmp", path)
     return path
+
+
+def _bcfg(b):
+    try:
+        return json.loads(b["cfg"] or "{}")
+    except (KeyError, IndexError, TypeError, ValueError):
+        return {}
+
+
+def _ext_env(b):
+    """Окружение внешнего бота: свой токен, владелец, папка данных и порт. Настройки основного бота не передаём."""
+    import appcfg
+    from ctor import core as ctor_core
+    bid = b["id"]
+    cfg = _bcfg(b)
+    data = ext_data_dir(bid)
+    os.makedirs(data, exist_ok=True)
+    base = appcfg.public_url()
+    env = _env()
+    owner = str(b["user_id"])
+    sup = (cfg.get("support") or "").strip()
+    if sup.startswith("@"):
+        sup = "https://t.me/" + sup[1:]
+    elif sup and not sup.startswith("http"):
+        sup = "https://t.me/" + sup
+    env.update(
+        BOT_TOKEN=b["token"], ADMIN_ID=owner, ADMIN_IDS=owner, MAIN_ADMIN_ID=owner, OWNER_IDS=owner,
+        DATA_DIR=data, DB_PATH=os.path.join(data, "savemod.db"), WEB_PORT=str(child_port(bid)),
+        WEBAPP_URL=f"{base}/b/{bid}" if base else "", SUPPORT_URL=sup or "https://t.me/BotFather",
+        APP_NAME=html.escape((cfg.get("title") or b["shop_name"] or "")[:40], quote=False) or "Heliys Bot",  # попадает в HTML-сообщения
+    )
+    return env
+
+
+def _ext_cmd(b):
+    from ctor import kinds
+    k = kind_of(b)
+    return [sys.executable, os.path.join(kinds.ext_dir(k), kinds.KINDS[k][3])], kinds.ext_dir(k)
 
 
 def _env():
@@ -175,9 +250,14 @@ async def _run(bid):
             except OSError:
                 pass
             started = time.monotonic()
+            if is_ext(b):
+                cmd, cwd = _ext_cmd(b)
+                env = _ext_env(b)
+            else:
+                cmd, cwd, env = [sys.executable, CASINO_MAIN if is_game(b) else MAIN, "--child", _write_cfg(b)], ROOT, _env()
             with open(lp, "ab") as logf:
                 proc = await asyncio.create_subprocess_exec(
-                    sys.executable, MAIN, "--child", _write_cfg(b), cwd=ROOT, env=_env(),
+                    *cmd, cwd=cwd, env=env,
                     stdin=asyncio.subprocess.DEVNULL, stdout=logf, stderr=asyncio.subprocess.STDOUT)
                 _procs[bid] = proc
                 log.info("бот клиента #%s (@%s) запущен, pid %s", bid, b["username"], proc.pid)

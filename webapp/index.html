@@ -443,7 +443,18 @@ button.stile { cursor: pointer; }
 .rating-row { margin-top: 8px; font-size: 14px; }
 .rating-row b { font-weight: 800; }
 .rating-row span { color: var(--muted); }
-.reviews { margin-top: 12px; padding: 4px 16px; }
+.reviews { margin-top: 12px; padding: 14px 16px; }
+.rv-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.rv-top h3 { margin: 0; font-size: 16px; }
+.rv-avg { color: #fbbf24; font-size: 13px; } .rv-avg b { color: var(--text); }
+.rv-write { margin: 4px 0 8px; } .rv-more { margin-top: 10px; }
+.rv-none { color: var(--muted); font-size: 13.5px; margin: 6px 0 2px; }
+.rv-stars { display: flex; gap: 6px; justify-content: center; margin: 10px 0 12px; }
+.rv-stars button { width: 48px; height: 48px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2, transparent); color: var(--surface-3, #555); font-size: 26px; line-height: 1; cursor: pointer; transition: color .15s, transform .15s, background .15s; }
+.rv-stars button.on { color: #fbbf24; background: rgba(251,191,36,.12); border-color: rgba(251,191,36,.5); }
+.rv-stars button:active { transform: scale(.94); }
+.rv-text { width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2, transparent); color: var(--text); font: inherit; font-size: 16px; resize: vertical; margin-bottom: 10px; }
+.rv-text:focus-visible, .rv-stars button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .rv { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .rv:last-child { border-bottom: 0; }
 .rv-h { display: flex; align-items: center; gap: 8px; }
@@ -870,7 +881,7 @@ async function renderProduct(pid) {
   let p;
   try { p = (await api("product/" + pid)).product; } catch (e) { toast(e.message || "Ошибка"); return; }
   const minQ = Math.max(1, p.min_qty || 1);
-  S.product = p; S.qty = p.multi ? minQ : 1;
+  S.product = p; S.qty = p.multi ? minQ : 1; S.rvPage = 0;
   const startTotal = money(Math.round((p.promo_price || p.price) * S.qty * 100) / 100);
   const media = p.media ? (p.media.type === "photo" ? `<img src="${mediaUrl(p.media)}" alt="">` : `<video src="${mediaUrl(p.media)}" autoplay loop muted playsinline controls></video>`)
     : (p.emoji_id ? pe(p.emoji_id, firstEmoji(p.name) || "") : (firstEmoji(p.name) ? esc(firstEmoji(p.name)) : svg("bag")));
@@ -893,10 +904,46 @@ async function renderProduct(pid) {
       ${qty}
       ${p.description ? `<div class="desc rich">${p.description}</div>` : ""}
     </div>
-    ${(p.review_list || []).length ? `<div class="card reviews">${p.review_list.map((r) => `<div class="rv"><div class="rv-h"><b>${esc(r.name)}</b><span>${"★".repeat(r.r)}<i>${"★".repeat(5 - r.r)}</i></span><small>${esc(r.date)}</small></div>${r.text ? `<p>${esc(r.text)}</p>` : ""}</div>`).join("")}</div>` : ""}
+    <div class="card reviews" id="rvBox">${reviewsHtml(p)}</div>
     <div class="buybar">${out ? `<button class="btn ghost" data-act="notify">${svg("bell", "sm")} ${T("app_notify")}</button>` : `<button class="btn" data-act="buy">${T("app_buy")} · <span id="buyTotal">${startTotal}</span></button>`}</div>`;
   hydrateEmoji(el);
   el.querySelectorAll(".tg-spoiler").forEach((s) => s.addEventListener("click", () => s.classList.add("open")));
+}
+function reviewItem(r) { return `<div class="rv"><div class="rv-h"><b>${esc(r.name)}</b><span>${"★".repeat(r.r)}<i>${"★".repeat(5 - r.r)}</i></span><small>${esc(r.date)}</small></div>${r.text ? `<p>${esc(r.text)}</p>` : ""}</div>`; }
+function reviewsHtml(p) {
+  const list = p.review_list || [];
+  const head = `<div class="rv-top"><h3>${T("app_rv_title")}</h3>${p.reviews ? `<span class="rv-avg">★ <b>${p.rating}</b> · ${p.reviews}</span>` : ""}</div>`;
+  const write = p.can_review ? `<button class="btn block rv-write" data-act="rv-write">${T("app_rv_write")}</button>` : "";
+  const body = list.length ? list.map(reviewItem).join("") : `<p class="rv-none">${T("app_rv_none")}</p>`;
+  const more = p.reviews > list.length ? `<button class="btn ghost block rv-more" data-act="rv-more">${T("app_rv_more")}</button>` : "";
+  return head + write + body + more;
+}
+function openReview() {
+  S.rvStars = 0;
+  sheet(`<h3>${T("app_rv_write")}</h3><p>${esc(stripEmoji(S.product.name))}</p>
+    <div class="rv-stars" id="rvStars" role="radiogroup" aria-label="${T("app_rv_pick")}">${[1, 2, 3, 4, 5].map((n) => `<button type="button" data-rv-star="${n}" role="radio" aria-checked="false" aria-label="${n}">★</button>`).join("")}</div>
+    <textarea id="rvText" class="rv-text" rows="3" maxlength="500" placeholder="${T("app_rv_ph")}"></textarea>
+    <button class="btn block" id="rvSend" data-act="rv-send" disabled>${T("app_rv_send")}</button>`);
+}
+async function sendReview() {
+  const p = S.product;
+  if (!S.rvStars) return toast(plain(T("app_rv_pick")));
+  setBusy(true);
+  try {
+    const r = await api("review", { pid: p.id, rating: S.rvStars, text: ($("#rvText").value || "").trim() });
+    p.rating = r.rating; p.reviews = r.reviews; p.review_list = r.review_list; p.can_review = r.can_review;
+    closeSheet(); haptic("ok"); toast(plain(T("app_rv_thanks")));
+    const box = $("#rvBox"); if (box) box.innerHTML = reviewsHtml(p);
+  } catch (e) { haptic("err"); toast(e.message || "Ошибка"); }
+  finally { setBusy(false); }
+}
+async function moreReviews(btn) {
+  const p = S.product; S.rvPage = (S.rvPage || 0) + 1;
+  try {
+    const r = await api("reviews?pid=" + p.id + "&page=" + S.rvPage);
+    btn.insertAdjacentHTML("beforebegin", r.list.map(reviewItem).join(""));
+    if (!r.more) btn.remove();
+  } catch (e) { toast(e.message || "Ошибка"); }
 }
 function unitPrice() { const p = S.product; return p.promo_price || p.price; }
 function setQty(n, typing) {
@@ -1124,6 +1171,13 @@ async function refreshMe() {
 
 /* ---------- клики ---------- */
 document.addEventListener("click", async (e) => {
+  const st = e.target.closest("[data-rv-star]");
+  if (st) {
+    S.rvStars = +st.dataset.rvStar; haptic();
+    document.querySelectorAll("#rvStars button").forEach((b) => { const on = +b.dataset.rvStar <= S.rvStars; b.classList.toggle("on", on); b.setAttribute("aria-checked", on && +b.dataset.rvStar === S.rvStars ? "true" : "false"); });
+    const sb = $("#rvSend"); if (sb) sb.disabled = false;
+    return;
+  }
   const t = e.target.closest("[data-tab],[data-kind],[data-prod],[data-act],[data-pay],[data-top],[data-amt],[data-copy],[data-link],[data-q],[data-theme-set],[data-lang-set],[data-pal]");
   if (!t || t.disabled) return;
   const d = t.dataset;
@@ -1145,6 +1199,9 @@ document.addEventListener("click", async (e) => {
     case "profile": return go("profile");
     case "search": go("home"); return setTimeout(() => $("#q") && $("#q").focus(), 60);
     case "buy": haptic("medium"); return openPay();
+    case "rv-write": haptic(); return openReview();
+    case "rv-send": return sendReview();
+    case "rv-more": return moreReviews(t);
     case "notify": try { const r = await api("notify", { pid: S.product.id }); toast(plain(r.message)); } catch (x) {} return;
     case "fav": try { const r = await api("fav", { pid: S.product.id }); S.product.fav = r.fav; t.classList.toggle("on", r.fav); haptic(); } catch (x) {} return;
     case "bonus":

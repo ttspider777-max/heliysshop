@@ -15,7 +15,8 @@ from aiohttp import web
 
 import appcfg
 import db
-from ctor import core
+import hosting
+from ctor import core, kinds
 
 log = logging.getLogger(__name__)
 
@@ -110,7 +111,9 @@ def _bots(uid):
     for b in db.user_hosted(uid):
         if not b["tg_id"]:
             continue
-        out.append({"id": b["id"], "username": b["username"], "status": b["status"],
+        bk = hosting.kind_of(b)
+        out.append({"id": b["id"], "username": b["username"], "status": b["status"], "kind": bk,
+                    "kind_name": kinds.name(bk), "can_swap": bool(b["token"] and core.swap_on()),
                     "status_text": STATUS_RU.get(b["status"], b["status"]),
                     "trial_until": builder.fmt_until(b["trial_until"]) if b["trial_until"] else None,
                     "plan": core.bot_plan(b), "plan_text": core.plan_line(b), "verified": bool(b["verified"]),
@@ -118,14 +121,23 @@ def _bots(uid):
     return out
 
 
-def _tariffs(uid, mw):
+def _tariffs(uid, mw, kind="shop"):
     from ctor import bot as cbot
     out = []
-    for k in core.tariffs_on():
-        amount, _ = core.final_price(uid, k)
+    for k in core.tariffs_on(kind):
+        amount, _ = core.final_price(uid, k, kind)
         out.append({"id": k, "name": core.tariff_name(k), "days": core.tariff_days(k), "period": core.tariff_period(k),
-                    "price": amount, "base": core.tariff_price(k), "stars": core.stars_for(amount),
-                    "desc": mw.sanitize(cbot.tariff_desc(k))})
+                    "price": amount, "base": core.tariff_price(k, kind), "stars": core.stars_for(amount),
+                    "desc": mw.sanitize(cbot.tariff_desc(k, kind))})
+    return out
+
+
+def _kinds(uid, mw):
+    """Типы ботов для первого шага создания: название, описание, цены тарифов."""
+    out = []
+    for k in core.kinds_on():
+        out.append({"id": k, "name": kinds.name(k), "desc": kinds.desc(k), "app": kinds.has_app(k),
+                    "min_price": core.min_tariff_price(k), "tariffs": _tariffs(uid, mw, k)})
     return out
 
 
@@ -165,6 +177,8 @@ async def boot(request):
         "price": core.price(),
         "min_price": core.min_tariff_price(),
         "tariffs": _tariffs(uid, mw),
+        "kinds": _kinds(uid, mw),
+        "swap": {"on": core.swap_on(), "price": core.swap_price()},
         "faq": [{"q": mw.sanitize(f.get("q") or ""), "a": mw.sanitize(f.get("a") or "")}
                 for f in core.jget("faq", core.FAQ)],
         "course": core.flag_on("course"),
@@ -177,7 +191,7 @@ async def boot(request):
                  "photo_url": tg.get("photo_url"), "balance": round(u["balance"] or 0, 2),
                  "is_admin": uid in __import__("config").ADMINS},
         "bots": _bots(uid),
-        "draft": {k: d.get(k) for k in ("mode", "color", "hex", "style", "title", "desc", "plan")},
+        "draft": {k: d.get(k) for k in ("kind", "mode", "color", "hex", "style", "title", "desc", "plan")},
         "ideas": core.desc_ideas(d.get("title")),
         "topup": {"min": core.topup_min(), "amounts": [a for a in (100, 300, 500, 1000, 2000) if a >= core.topup_min()]},
     }
@@ -201,6 +215,11 @@ async def save_draft(request):
     tg, _ = ok
     uid = tg["id"]
     body = await _body(request)
+    kind = str(body.get("kind") or "shop")
+    if kind not in kinds.KINDS or not core.kind_on(kind):
+        return jerr("kind", "Этот тип бота сейчас недоступен")
+    if kind != "shop":
+        return await _save_other(uid, body, kind)
     color = str(body.get("color") or "")
     style = str(body.get("style") or "")
     title = core.clean_title(str(body.get("title") or ""))
@@ -220,7 +239,7 @@ async def save_draft(request):
     if not desc:
         return jerr("desc", "Напишите описание")
     d, _ = core.draft(uid)
-    d.update(mode=mode, title=title, desc=desc)
+    d.update(kind="shop", mode=mode, title=title, desc=desc)
     if mode == "app":
         d.update(color=color, style=style)
     else:
@@ -229,7 +248,7 @@ async def save_draft(request):
     plan = str(body.get("plan") or "")
     if plan == "trial" and cbot.trial_ok(uid, d):
         d["plan"] = "trial"
-    elif plan in core.TARIFFS and core.tariff_on(plan):
+    elif plan in core.TARIFFS and core.tariff_on(plan, "shop"):
         d["plan"] = plan
     else:
         d["plan"] = "buy"  # тариф выберет в чате
@@ -241,6 +260,48 @@ async def save_draft(request):
     core.save_draft(uid, d, step)
     await cbot.prompt(uid, uid, step, d)
     return web.json_response({"ok": True, "step": step})
+
+
+async def _save_other(uid, body, kind):
+    """Казино и внешние боты: из мини-приложения приходят только тип и название, остальное (поддержка, токен) — в чате."""
+    from ctor import bot as cbot
+    title = core.clean_title(str(body.get("title") or ""))
+    if not title:
+        return jerr("title", "Напишите название")
+    d, _ = core.draft(uid)
+    d.update(kind=kind, title=title)
+    for k in ("mode", "color", "hex", "style", "desc", "template", "welcome", "wmedia", "welcome_default"):
+        d.pop(k, None)
+    plan = str(body.get("plan") or "")
+    if plan == "trial" and cbot.trial_ok(uid, d):
+        d["plan"] = "trial"
+    elif plan in core.TARIFFS and core.tariff_on(plan, kind):
+        d["plan"] = plan
+    else:
+        d["plan"] = "buy"
+    step = core.next_step(d)
+    core.save_draft(uid, d, step)
+    await cbot.prompt(uid, uid, step, d)
+    return web.json_response({"ok": True, "step": step})
+
+
+async def swap(request):
+    """«Сменить бота»: токен нового бота пользователь присылает в чат (платно)."""
+    from ctor import bot as cbot
+    ok, err = await _auth(request)
+    if err:
+        return err
+    tg, _ = ok
+    body = await _body(request)
+    try:
+        bid = int(body.get("bot"))
+    except (TypeError, ValueError):
+        return jerr("bad", "Бот не найден")
+    if not core.swap_on():
+        return jerr("off", "Смена бота сейчас недоступна")
+    if not await cbot.swap_start(tg["id"], tg["id"], bid):
+        return jerr("bad", "Бот не найден")
+    return web.json_response({"ok": True})
 
 
 async def topup(request):
@@ -275,7 +336,7 @@ async def buy(request):
     if not b or b["user_id"] != tg["id"] or not cbot.can_renew(b):
         return jerr("bad", "Бот уже куплен навсегда — обновите страницу")
     tariff = str(body.get("tariff") or "")
-    if tariff in core.TARIFFS and core.tariff_on(tariff):
+    if tariff in core.TARIFFS and core.tariff_on(tariff, hosting.kind_of(b)):
         await cbot.pay_menu(tg["id"], tg["id"], "buy", bid, tariff)  # способы оплаты — в чат с ботом
     else:
         await cbot.tariff_view(tg["id"], tg["id"], "b", bid)
@@ -325,6 +386,7 @@ def setup(app):
     app.router.add_post("/c/api/draft", save_draft)
     app.router.add_post("/c/api/topup", topup)
     app.router.add_post("/c/api/buy", buy)
+    app.router.add_post("/c/api/swap", swap)
     app.router.add_get("/c/api/chat", chat)
     app.router.add_post("/c/api/chat", chat)
     app.router.add_get("/c/m/{sig}/{fid}", tg_media)

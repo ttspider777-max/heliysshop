@@ -29,21 +29,24 @@ def flag_toggle(key):
 # ======================= 💎 тарифы =======================
 async def tariffs_view(target, prefix=""):
     lines = []
-    for k, (name, days, _) in core.TARIFFS.items():
+    timed = [k for k in core.TARIFFS if core.tariff_days(k) > 0]
+    for k in timed:
+        name = core.tariff_name(k)
         lines.append(f"{name} — <b>{money(core.tariff_price(k))}</b> · {core.tariff_period(k)} · "
                      f"{'✅ вкл' if core.tariff_on(k) else '⏸ выкл'}")
     sold = db.q("SELECT tariff, COUNT(*) n, COALESCE(SUM(amount),0) s FROM ctor_payments WHERE status='paid' "
-                "AND kind!='addon' GROUP BY tariff")
+                "AND kind NOT IN ('addon','swap') GROUP BY tariff")
     stat = "\n".join(f"{core.tariff_name(r['tariff'] or 'pro')}: {r['n']} шт. на {money(r['s'])}" for r in sold) or "пока нет"
-    vip = "✅ загружен" if core.get("vip_file") else "❌ не загружен — VIP-покупателю архив пришлёте вручную"
-    text = (f"{prefix}💎 <b>Тарифы</b>\n\n" + "\n".join(lines) + f"\n\n📊 Продано:\n{stat}\n\n👑 Архив VIP: {vip}\n\n"
-            "<i>Описания тарифов (что видит покупатель) — кнопки «✏️ Описание». Цена Pro — это «💰 Цена» бота.</i>")
+    text = (f"{prefix}💎 <b>Тарифы магазина</b> (подписка на срок; «навсегда» больше не продаётся)\n\n"
+            + "\n".join(lines) + f"\n\n📊 Продано:\n{stat}\n\n"
+            "<i>Цены для других типов ботов (казино, чат-менеджер и т.д.) — в «🧩 Типы ботов и цены». "
+            "Описания тарифов (что видит покупатель) — кнопки «✏️ Описание».</i>")
     rows = []
-    for k in core.TARIFFS:
+    for k in timed:
         rows.append([B(f"{core.tariff_name(k)}: {money(core.tariff_price(k))}", f"ca2:tp:{k}"),
                      B("✅" if core.tariff_on(k) else "⏸", f"ca2:tt:{k}"),
                      B("✏️ Описание", f"ca:t:tariff_{k}")])
-    rows.append([B("👑 Загрузить архив VIP (.zip)", "ca2:vip", style="primary")])
+    rows.append([B("🧩 Типы ботов и цены", "ca2:kd", style="primary")])
     rows.append(back())
     await render(target, text, kb(rows))
 
@@ -86,6 +89,125 @@ async def in_tprice(m, w, txt, finish, bot):
     core.put("price" if w["key"] == "pro" else "tp:" + w["key"], v)
     finish()
     await tariffs_view(m, "✅ Сохранено.\n\n")
+
+
+# ======================= 🧩 типы ботов и цены =======================
+async def kinds_view(target, prefix=""):
+    lines = []
+    for k in core.kinds.VISIBLE:
+        prices = " · ".join(f"{core.tariff_name(t)} {money(core.tariff_price(t, k))}" for t in core.tariffs_on(k)) or "тарифов нет"
+        n = db.val("SELECT COUNT(*) FROM hosted_bots WHERE source='ctor' AND cfg LIKE ?", (f'%"kind": "{k}"%',)) or 0
+        lines.append(f"{'✅' if core.kind_on(k) else '⏸'} {core.kinds.name(k)} — {prices} · ботов: {n}")
+    text = (f"{prefix}🧩 <b>Типы ботов и цены</b>\n\n<blockquote>" + "\n".join(lines) + "</blockquote>\n\n"
+            f"🔑 Смена бота (другой токен): <b>{money(core.swap_price())}</b> · {onoff(core.swap_on())}\n\n"
+            "<i>Откройте тип — там цены тарифов и включение. Пока цена не задана, у типа цена как у магазина.</i>")
+    rows = [[B(f"{'✅' if core.kind_on(k) else '⏸'} {core.kinds.name(k)}", f"ca2:kk:{k}")] for k in core.kinds.VISIBLE]
+    rows.append([B(f"🔑 Цена смены бота: {money(core.swap_price())}", "ca2:sp"),
+                 B("✅" if core.swap_on() else "⏸", "ca2:st")])
+    rows.append(back())
+    await render(target, text, kb(rows))
+
+
+async def kind_view(target, k, prefix=""):
+    if k not in core.kinds.VISIBLE:
+        return await kinds_view(target)
+    timed = [t for t in core.TARIFFS if core.tariff_days(t) > 0]
+    lines = [f"{core.tariff_name(t)} — <b>{money(core.tariff_price(t, k))}</b> · {core.tariff_period(t)} · "
+             f"{'✅ вкл' if core.tariff_on(t, k) else '⏸ выкл'}" for t in timed]
+    extra = ""
+    text = (f"{prefix}{core.kinds.name(k)}\n<i>{html.escape(core.kinds.desc(k))}</i>\n\n"
+            f"Статус: <b>{onoff(core.kind_on(k))}</b>\n" + "\n".join(lines) + extra +
+            "\n\n<i>Нажмите на цену, чтобы поменять. Цена в рублях за срок тарифа.</i>")
+    rows = [[B(f"🧩 Тип: {onoff(core.kind_on(k))}", f"ca2:kt:{k}")]]
+    for t in timed:
+        rows.append([B(f"{core.tariff_name(t)}: {money(core.tariff_price(t, k))}", f"ca2:kp:{k}:{t}"),
+                     B("✅" if core.tariff_on(t, k) else "⏸", f"ca2:kq:{k}:{t}")])
+    rows.append(back("ca2:kd"))
+    await render(target, text, kb(rows))
+
+
+@router.callback_query(F.data == "ca2:kd")
+async def cb_kinds(call: CallbackQuery):
+    await kinds_view(call)
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("ca2:kk:"))
+async def cb_kind(call: CallbackQuery):
+    await kind_view(call, call.data[7:])
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("ca2:kt:"))
+async def cb_kind_toggle(call: CallbackQuery):
+    k = call.data[7:]
+    if k in core.kinds.KINDS:
+        if core.kind_on(k) and len(core.kinds_on()) == 1:
+            return await call.answer("Хотя бы один тип бота должен быть включён", show_alert=True)
+        core.put("kind_off:" + k, None if core.kind_on(k) is False else "1")
+    await kind_view(call, k)
+    await call.answer("Готово")
+
+
+@router.callback_query(F.data.startswith("ca2:kq:"))
+async def cb_kind_plan_toggle(call: CallbackQuery):
+    _, _, k, t = call.data.split(":")
+    if k in core.kinds.KINDS and t in core.TARIFFS:
+        on = core.tariff_on(t, k)
+        if on and len(core.tariffs_on(k)) == 1:
+            return await call.answer("Хотя бы один тариф должен быть включён", show_alert=True)
+        core.put(f"koff:{k}:{t}", "1" if on else None)
+    await kind_view(call, k)
+    await call.answer("Готово")
+
+
+@router.callback_query(F.data.startswith("ca2:kp:"))
+async def cb_kind_price(call: CallbackQuery):
+    _, _, k, t = call.data.split(":")
+    if k not in core.kinds.KINDS or t not in core.TARIFFS:
+        return await call.answer()
+    await ask(call, "x_kprice", f"{core.kinds.name(k)} · {core.tariff_name(t)}\n\nСейчас: "
+                                f"<b>{money(core.tariff_price(t, k))}</b> · {core.tariff_period(t)}\n\n"
+                                "Отправьте новую цену в рублях (например <code>149</code>).",
+              cancel=f"ca2:kk:{k}", key=f"{k}:{t}")
+
+
+async def in_kprice(m, w, txt, finish, bot):
+    k, t = w["key"].split(":")
+    try:
+        v = round(float(txt.replace(",", ".").replace("₽", "")), 2)
+    except ValueError:
+        return await m.answer("Нужно число:")
+    if v < 0 or v > 1000000:
+        return await m.answer("Слишком много или меньше нуля. Ещё раз:")
+    core.put(("tp:" + t) if k == "shop" else f"kp:{k}:{t}", v)
+    finish()
+    await kind_view(m, k, "✅ Сохранено.\n\n")
+
+
+@router.callback_query(F.data == "ca2:st")
+async def cb_swap_toggle(call: CallbackQuery):
+    core.put("swap_off", None if not core.swap_on() else "1")
+    await kinds_view(call)
+    await call.answer("Готово")
+
+
+@router.callback_query(F.data == "ca2:sp")
+async def cb_swap_price(call: CallbackQuery):
+    await ask(call, "x_swprice", f"🔑 Смена бота (другой токен)\n\nСейчас: <b>{money(core.swap_price())}</b>\n\n"
+                                 "Отправьте новую цену в рублях (0 — бесплатно).", cancel="ca2:kd")
+
+
+async def in_swprice(m, w, txt, finish, bot):
+    try:
+        v = round(float(txt.replace(",", ".").replace("₽", "")), 2)
+    except ValueError:
+        return await m.answer("Нужно число:")
+    if v < 0 or v > 100000:
+        return await m.answer("Слишком много или меньше нуля. Ещё раз:")
+    core.put("swap_price", v)
+    finish()
+    await kinds_view(m, "✅ Сохранено.\n\n")
 
 
 @router.callback_query(F.data == "ca2:vip")
@@ -597,7 +719,9 @@ async def cb_verified_need(call: CallbackQuery):
 # ======================= возврат и ввод =======================
 async def route(call: CallbackQuery, target):
     """Отмена ввода: вернуть на экран, откуда начали (admin.route_back → сюда для «ca2:…»)."""
-    views = {"ca2:tar": tariffs_view, "ca2:grow": growth_view, "ca2:ad": addons_view, "ca2:pl": partners_view,
+    if target.startswith("ca2:kk:"):
+        return await kind_view(call, target[7:])
+    views = {"ca2:kd": kinds_view, "ca2:tar": tariffs_view, "ca2:grow": growth_view, "ca2:ad": addons_view, "ca2:pl": partners_view,
              "ca2:cr": course_view, "ca2:fq": faq_view, "ca2:pu": push_view, "ca2:vf": verified_view}
     if target in views:
         return await views[target](call)
@@ -609,6 +733,6 @@ async def route(call: CallbackQuery, target):
 
 
 admin.EXTRA.update({
-    "x_tprice": in_tprice, "x_vip": in_vip, "x_value": in_value, "x_aprice": in_aprice, "x_padd": in_padd,
+    "x_kprice": in_kprice, "x_swprice": in_swprice, "x_tprice": in_tprice, "x_vip": in_vip, "x_value": in_value, "x_aprice": in_aprice, "x_padd": in_padd,
     "x_lesson": in_lesson, "x_faq": in_faq, "x_chr": in_chr,
 })

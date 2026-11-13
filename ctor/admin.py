@@ -113,6 +113,7 @@ async def home(target, prefix=""):
             f"🔎 Чеков на проверке: <b>{pending}</b></blockquote>\n\n"
             + ("🛠 <b>ВКЛЮЧЕНЫ ТЕХРАБОТЫ</b> — пользователи видят заглушку.\n\n" if core.get("maint") == "1" else "")
             + "💎 " + " · ".join(f"{core.tariff_name(k)} {money(core.tariff_price(k))}" for k in core.tariffs_on())
+            + f"\n🧩 Типов ботов: <b>{len(core.kinds_on())}</b> из {len(core.kinds.KINDS)}"
             + f"\n🎁 Пробный: <b>{core.trial_days() or 'выкл'}</b>"
             f"{' дн.' if core.trial_days() else ''}")
     if not cbot.app_url():
@@ -122,7 +123,7 @@ async def home(target, prefix=""):
     await render(target, text, kb([
         [B("👋 Приветствие", "ca:wel"), B("🔘 Кнопки", "ca:btns")],
         [B("📝 Тексты бота", "ca:txl:0"), B("📱 Мини-приложение", "ca:app", style="primary")],
-        [B("💎 Тарифы: Start / Medium / Pro / VIP", "ca2:tar", style="success")],
+        [B("🧩 Типы ботов и цены", "ca2:kd", style="success"), B("💎 Тарифы", "ca2:tar")],
         [B("📈 Рост и продажи", "ca2:grow", style="primary"), B("🎁 Пробный период", "ca:v:trial_days")],
         [B("💳 Оплата: звёзды, крипта, СБП", "ca:pay", style="primary")],
         [B("💳 Реквизиты СБП", "ca:v:sbp"), B("💬 Поддержка", "ca:v:support_url")],

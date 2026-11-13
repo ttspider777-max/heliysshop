@@ -176,6 +176,8 @@ async def verified_tick():
     n = 0
     for b in db.q("SELECT * FROM hosted_bots WHERE source='ctor' AND COALESCE(verified,0)=0 "
                   "AND status IN ('running','stopped')"):
+        if hosting.kind_of(b) != "shop":
+            continue  # значок «Проверенный магазин» — только у магазинов
         sales = shop_sales(b["id"])
         if sales < need:
             continue

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Heliys AutoPosting</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600&family=Onest:wght@400;500;600;700&family=Unbounded:wght@600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="backdrop-art" aria-hidden="true"></div>
+<canvas id="snow" aria-hidden="true"></canvas>
+<svg id="garland" aria-hidden="true"></svg>
+
+<div class="app">
+  <header class="top">
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M3.3 7l17.4 10M20.7 7 3.3 17M12 6l-2.2-2.2M12 6l2.2-2.2M12 18l-2.2 2.2M12 18l2.2 2.2M6.8 9 3.8 9.8M6.8 9l-.8-3M17.2 15l3 .8M17.2 15l.8 3M17.2 9l3-.8M17.2 9l.8-3M6.8 15l-3 .8M6.8 15l-.8 3"/></svg>
+    </div>
+    <div class="brand">
+      <div class="brand-name">Heliys</div>
+      <div class="brand-sub">AutoPosting</div>
+    </div>
+    <div class="avatar" id="avatar"></div>
+  </header>
+
+  <main id="view"><div class="loader"><span class="spin"></span></div></main>
+</div>
+
+<nav class="tabbar" id="tabbar" hidden>
+  <button class="tab" data-act="tab" data-tab="profile">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+    <span>Профиль</span>
+  </button>
+  <button class="tab" data-act="tab" data-tab="mailings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a1 1 0 0 0 1 1h3l8 5V5L7 10H4a1 1 0 0 0-1 1Z"/><path d="M18.5 9a4.2 4.2 0 0 1 0 6"/></svg>
+    <span>Рассылки</span>
+  </button>
+  <button class="tab" data-act="tab" data-tab="stats">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+    <span>Статистика</span>
+  </button>
+  <button class="tab" data-act="tab" data-tab="accounts">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M16 7l3 3M14 9l2 2"/></svg>
+    <span>Аккаунты</span>
+  </button>
+</nav>
+
+<div class="scrim" id="scrim" data-act="close"></div>
+<section class="sheet" id="sheet" aria-modal="true" role="dialog">
+  <div class="sheet-grip" data-act="close"></div>
+  <div class="sheet-body" id="sheetBody"></div>
+</section>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

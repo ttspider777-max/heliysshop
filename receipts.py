@@ -17,7 +17,7 @@ import io
 import json
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import aiohttp
 
@@ -37,7 +37,8 @@ PROMPT = (
     "переписка, не скрин с ценой). success — перевод выполнен (не «в обработке», не «отклонён»). amount — сумма "
     "перевода в рублях без комиссии. edit_signs — конкретные признаки монтажа/подделки: разные шрифты в одной строке, "
     "смазанные или наложенные цифры, неровное выравнивание суммы, следы редактора, несоответствие интерфейса банка, "
-    "время в будущем. fake_probability — 0..1, насколько вероятно, что чек поддельный или отредактирован. "
+    "время в будущем. Скриншот обычного приложения банка — НЕ признак подделки; JPEG-сжатие, обрезка и тёмная тема тоже. "
+    "fake_probability — 0..1: ставь выше 0.7 только при явных следах редактирования, у обычного чека — 0.0–0.2. "
     "Не выдумывай поля, которых нет на изображении — пиши null."
 )
 
@@ -115,7 +116,7 @@ def stats():
 # ======================= нейросеть =======================
 async def _ask(img_b64, mime, key, now=None):
     import asyncio
-    now = now or datetime.now()
+    now = now or msk_now()
     # модель не знает сегодняшнюю дату — без этого свежие чеки кажутся ей «из будущего»
     system = PROMPT + f"\n\nСегодня {now:%Y-%m-%d %H:%M} (московское время). Даты до этого момента — НЕ будущее."
     payload = {"model": VISION_MODEL, "max_tokens": 700, "temperature": 0,
@@ -165,9 +166,23 @@ def _digits(s):
 
 
 def _num(v):
+    """Число из ответа модели: 300, "300,00 ₽", "1 200,50", "1,200.50" (знак валюты и пробелы отбрасываются)."""
+    if isinstance(v, bool) or v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    s = re.sub(r"[^\d.,\-]", "", str(v))
+    if not s or not re.search(r"\d", s):
+        return None
+    if "," in s and "." in s:  # последний разделитель — десятичный, остальные — тысячи
+        dec = "," if s.rfind(",") > s.rfind(".") else "."
+        s = s.replace("," if dec == "." else ".", "").replace(dec, ".")
+    elif "," in s:
+        head, _, tail = s.rpartition(",")
+        s = head.replace(",", "") + tail if (len(tail) == 3 and head) else head.replace(",", "") + "." + tail
     try:
-        return float(str(v).replace(" ", "").replace(",", "."))
-    except (TypeError, ValueError):
+        return float(s)
+    except ValueError:
         return None
 
 
@@ -180,32 +195,56 @@ def _when(v):
     return None
 
 
+def msk_now():
+    """Текущее московское время. Сервер хостинга обычно живёт в UTC, а в чеке время московское:
+    сравнивать с datetime.now() нельзя — свежий чек выглядел «из будущего» и уходил на ручную проверку."""
+    return (datetime.now(timezone.utc) + timedelta(hours=3)).replace(tzinfo=None)
+
+
+def _flag(v):
+    """True / False / None (не знаю): модель то пишет bool, то строку."""
+    if isinstance(v, bool) or v is None:
+        return v
+    s = str(v).strip().lower()
+    if s in ("true", "yes", "да", "1"):
+        return True
+    if s in ("false", "no", "нет", "0"):
+        return False
+    return None
+
+
 def recipient_ok(info, details):
-    """Совпадает ли получатель в чеке с реквизитами владельца. None — проверить нечем."""
+    """Совпадает ли получатель в чеке с реквизитами владельца.
+    True — совпал; False — в чеке ЯВНО другой номер/карта; None — проверить нечем (банк скрывает часть номера,
+    в чеке виден только маскированный номер или имя — это не повод подозревать чек)."""
     det = html.unescape(re.sub(r"<[^>]+>", " ", details or ""))
     found = [_digits(x) for x in re.findall(r"\+?\d[\d\s\-()]{9,}\d", det)]
     phones = [d[-10:] for d in found if 10 <= len(d) <= 12]
     cards = [d[-4:] for d in found if 16 <= len(d) <= 19]
-    rp, rc, rn = _digits(info.get("recipient_phone")), _digits(info.get("recipient_card_last4")), info.get("recipient_name")
+    rp, rc = _digits(info.get("recipient_phone")), _digits(info.get("recipient_card_last4"))
     if phones and len(rp) >= 10:
         return rp[-10:] in phones
+    raw = str(info.get("recipient_phone") or "")
+    if phones and len(rp) < 10 and re.search(r"[*•xх#]", raw, re.I):
+        # номер замаскирован («+7 916 ***-**-67»): сверяем только видимые цифры в конце
+        tail = _digits(re.split(r"[*•xх#]", raw, flags=re.I)[-1])
+        if len(tail) >= 2:
+            return any(p.endswith(tail) for p in phones)
     if cards and len(rc) >= 4:
         return rc[-4:] in cards
-    if rn:
-        words = [w.lower().strip(".") for w in re.findall(r"[A-Za-zА-Яа-яЁё]{3,}", det)]
-        first = re.findall(r"[A-Za-zА-Яа-яЁё]{3,}", str(rn))
-        if words and first:
-            return first[0].lower() in words
-    if phones or cards:
-        return False if (rp or rc) else None  # реквизиты есть, а в чеке получателя не видно
     return None
 
 
 def decide(info, expected, details, dup, now=None, limit=None):
-    """-> ('approve'|'reject'|'review', причина)."""
-    now = now or datetime.now()
+    """-> ('approve'|'reject'|'review', причина).
+
+    Раньше на проверку уходило почти всё: достаточно было fake_probability >= 0.3 (шум модели), любого «признака
+    монтажа» в списке, незнакомого получателя или времени сервера в UTC. Теперь на проверку идёт только то, что
+    действительно подозрительно; подозрение на монтаж — только если модель уверена."""
+    now = now or msk_now()
     limit = cap() if limit is None else limit  # cap() — настройки магазина; конструктор передаёт свой лимит
-    if not info.get("is_receipt"):
+    info = info or {}
+    if _flag(info.get("is_receipt")) is False or (info.get("is_receipt") is None and info.get("amount") is None):
         return "reject", "это не чек перевода"
     if dup:
         return "reject", "этот чек уже присылали по другой оплате"
@@ -214,33 +253,32 @@ def decide(info, expected, details, dup, now=None, limit=None):
         return "reject", f"в чеке {amount:g}₽, а нужно {expected:g}₽"
     reasons = []
     fp = _num(info.get("fake_probability"))
-    signs = [s for s in (info.get("edit_signs") or []) if str(s).strip()]
-    if fp is None or fp >= 0.3 or signs:
-        reasons.append("похоже на монтаж: " + "; ".join(map(str, signs[:3])) if signs
-                       else f"нейросеть сомневается ({fp:g})" if fp is not None else "нет оценки подлинности")
-    if not info.get("success"):
+    raw_signs = info.get("edit_signs") or []
+    if isinstance(raw_signs, str):
+        raw_signs = [raw_signs]
+    signs = [str(s).strip() for s in raw_signs if str(s).strip()]
+    if fp is not None and fp > 1:  # иногда пишет в процентах
+        fp = fp / 100
+    if (fp is not None and fp >= 0.75) or (len(signs) >= 2 and (fp or 0) >= 0.5):
+        reasons.append("похоже на монтаж: " + "; ".join(signs[:3]) if signs else f"нейросеть сомневается ({fp:g})")
+    if _flag(info.get("success")) is False:
         reasons.append("перевод не завершён")
     if amount is None:
         reasons.append("сумма не видна")
-    elif amount > expected * 1.5 + 1:
-        reasons.append(f"сумма {amount:g}₽ сильно больше нужной")
+    elif amount > expected * 10 + 1:
+        reasons.append(f"сумма {amount:g}₽ намного больше нужной")
     when = _when(info.get("datetime"))
-    if not when:
-        reasons.append("не видно дату")
-    elif when > now + timedelta(hours=1):
+    if when and when > now + timedelta(hours=3):
         reasons.append("дата в будущем")
-    elif now - when > timedelta(hours=72):
-        reasons.append("чек старше 3 дней")
-    rec = recipient_ok(info, details)
-    if rec is False:
+    elif when and now - when > timedelta(days=7):
+        reasons.append("чек старше недели")
+    if recipient_ok(info, details) is False:
         reasons.append("получатель не совпадает с реквизитами")
-    elif rec is None and _digits(details):
-        reasons.append("не удалось сверить получателя")
     if limit and expected > limit:
         reasons.append(f"сумма выше лимита автоодобрения {limit:g}₽")
     if reasons:
         return "review", "; ".join(reasons)
-    return "approve", "сумма, получатель и дата совпадают, признаков монтажа нет"
+    return "approve", "сумма и получатель сходятся, признаков монтажа нет"
 
 
 async def check(bot, message, expected, details, kind, ref_id, ns=SHOP):

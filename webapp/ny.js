@@ -11,6 +11,7 @@
   const tg = window.Telegram && window.Telegram.WebApp;
   const haptic = (k) => { try { tg && tg.HapticFeedback && tg.HapticFeedback.impactOccurred(k || "light"); } catch (e) {} };
   let uid = 0;
+  const LITE = !!window.__NY_LITE;  // страница сама рисует новогодний стиль — тут только мягкий снег
 
   /* ---------- дата: «С наступающим 2027!» в ноябре–декабре, «С Новым 2027 годом!» в январе–феврале ---------- */
   function when() {
@@ -249,6 +250,7 @@
   const DRIFT = `<svg viewBox="0 0 400 12" preserveAspectRatio="none" aria-hidden="true"><path d="M0 12V8c18-6 34-7 52-3s30 3 48-2 36-4 54 1 30 5 50 0 38-6 58-1 30 6 52 2 34-6 52-3 24 4 34 4v6z" fill="#fff" opacity=".95"/></svg>`;
 
   function decorate() {
+    if (LITE) return;
     // карточка на главной (не превью в мастере создания)
     document.querySelectorAll(".screen .hero").forEach((hero) => {
       if (hero.closest(".preview")) return;
@@ -264,11 +266,9 @@
     }
   }
   function perch() {
-    const w = when();
     const el = document.createElement("div");
     el.className = "ny-perch";
-    el.innerHTML = `<div class="ny-hi"><div class="ny-t">${w.title}</div><div class="ny-s">${TREE}<span>${w.sub}</span></div></div>
-      <div class="ny-pc" role="img" aria-label="Новогодний кот">${cat()}</div>`;
+    el.innerHTML = `<div class="ny-pc" role="img" aria-label="Новогодний кот">${cat()}</div>`;
     const pc = el.querySelector(".ny-pc");
     pc.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -334,13 +334,14 @@
 
   /* ---------- запуск ---------- */
   function start() {
+    if (LITE) return;  // у мини-приложения конструктора свой снег и гирлянды
     document.body.classList.add("ny");
-    splash();
-    garland();
+    // заставка «С наступающим…» и обратный отсчёт убраны по просьбе владельца
+    if (!LITE) garland();
     const cv = document.createElement("canvas");
     cv.id = "ny-snow";
     document.body.appendChild(cv);
-    snow(cv, window.innerWidth < 500 ? 38 : 60);
+    snow(cv, LITE ? (window.innerWidth < 500 ? 22 : 34) : (window.innerWidth < 500 ? 38 : 60));
     decorate();
     // приложение перерисовывает экраны через innerHTML — украшаем заново
     let t = 0;

@@ -498,6 +498,60 @@ async def api_list(request):
     return web.json_response({"ok": True, "items": [product_block(p) for p in items[:200]]})
 
 
+def review_block(r):
+    return {"id": r["id"], "r": r["rating"], "text": r["text"] or "", "name": r["first_name"] or "Покупатель",
+            "date": f"{r['created'][8:10]}.{r['created'][5:7]}"}
+
+
+async def api_reviews(request):
+    """Все отзывы о товаре страницами: GET /api/reviews?pid=1&page=0 — их видят все покупатели."""
+    try:
+        pid, page = int(request.query.get("pid") or 0), max(int(request.query.get("page") or 0), 0)
+    except ValueError:
+        return jerr("bad", "bad request")
+    if not db.product(pid):
+        return jerr("not_found", t("not_found", request["lang"]), 404)
+    avg, n = db.review_stats(pid)
+    rows = db.reviews_page(pid, 10, page * 10)
+    return web.json_response({"ok": True, "rating": avg, "total": n, "page": page,
+                              "list": [review_block(r) for r in rows], "more": (page + 1) * 10 < n})
+
+
+async def api_review(request):
+    """POST /api/review {pid, rating, text}: отзыв под товаром от того, кто его купил (один отзыв на покупку)."""
+    from handlers import reviews
+    u = request["user"]
+    if db.get_setting("reviews_off") == "1":
+        return jerr("off", "Отзывы выключены")
+    try:
+        body = await request.json() if request.can_read_body else {}
+        if not isinstance(body, dict):
+            raise ValueError
+        pid, rating = int(body.get("pid")), int(body.get("rating"))
+    except (TypeError, ValueError):  # включая json.JSONDecodeError
+        return jerr("bad", "Выберите оценку")
+    if not 1 <= rating <= 5:
+        return jerr("bad", "Оценка — от 1 до 5")
+    o = db.review_order_for(u["id"], pid)
+    if not o:
+        return jerr("no_purchase", "Оставить отзыв можно после покупки этого товара")
+    text = re.sub(r"\s+", " ", str(body.get("text") or "")).strip()[:500]
+    rid = db.add_review(o["id"], u["id"], pid, rating)
+    if not rid:
+        return jerr("dup", "Вы уже оставили отзыв на эту покупку")
+    if text:
+        db.set_review(rid, text=text)
+    if _bot:
+        try:
+            await reviews.notify_admins(_bot, db.review(rid))
+        except Exception:
+            log.exception("отзыв #%s: админам не отправлен", rid)
+    avg, n = db.review_stats(pid)
+    return web.json_response({"ok": True, "rating": avg, "reviews": n,
+                              "review_list": [review_block(r) for r in db.reviews_for(pid, 5)],
+                              "can_review": bool(db.review_order_for(u["id"], pid))})
+
+
 async def api_product(request):
     from handlers.shop import final_price, is_multi, max_qty
     pid = int(request.match_info["pid"])
@@ -513,8 +567,8 @@ async def api_product(request):
     out.update(description=sanitize(p["description"]), multi=is_multi(p), max_qty=max_qty(p),
                fav=db.is_fav(u["id"], pid), promo_price=fp if pct else None, promo_pct=pct,
                cat_name=cat["name"] if cat else "",
-               review_list=[{"r": r["rating"], "text": r["text"] or "", "name": r["first_name"] or "Покупатель",
-                             "date": f"{r['created'][8:10]}.{r['created'][5:7]}"} for r in db.reviews_for(pid, 5)])
+               review_list=[review_block(r) for r in db.reviews_for(pid, 5)],
+               can_review=bool(db.get_setting("reviews_off") != "1" and db.review_order_for(u["id"], pid)))
     if is_admin:  # для редактора в мини-приложении
         out.update(raw_description=p["description"] or "", kind=p["kind"], active=bool(p["active"]),
                    base_price=p["old_price"] if p["old_price"] and p["old_price"] > p["price"] else p["price"])
@@ -922,7 +976,7 @@ NY_JS = os.path.join(STATIC, "ny.js")
 def with_ny(body):
     """Подключает новогоднюю тему (webapp/ny.js), если она включена в конструкторе."""
     if appcfg.ny_on():
-        body = body.replace("</body>", '<script src="ny.js?v=2" defer></script>\n</body>', 1)
+        body = body.replace("</body>", '<script src="ny.js?v=3" defer></script>\n</body>', 1)
     return body
 
 
@@ -979,6 +1033,12 @@ async def child_proxy(request):
         raise web.HTTPBadGateway(text="bot is starting, try again")
 
 
+async def child_slash(request):
+    """/b/<номер> без слэша -> /b/<номер>/ (мини-приложения внешних ботов ходят в API по относительным путям)."""
+    q = ("?" + request.query_string) if request.query_string else ""
+    raise web.HTTPFound(f"/b/{request.match_info['bid']}/{q}")
+
+
 async def start(bot=None):
     """Запускает сайт рядом с ботом. Если порт занят или недоступен — просто пишет предупреждение."""
     global _bot, _bot_me
@@ -1005,6 +1065,8 @@ async def start(bot=None):
     app.router.add_get("/api/me", api_me)
     app.router.add_get("/api/list", api_list)
     app.router.add_get("/api/product/{pid:\\d+}", api_product)
+    app.router.add_get("/api/reviews", api_reviews)
+    app.router.add_post("/api/review", api_review)
     app.router.add_get("/api/orders", api_orders)
     for path, fn in (("fav", api_fav), ("notify", api_notify), ("buy", api_buy), ("bonus", api_bonus),
                      ("topup", api_topup), ("promo", api_promo), ("lang", api_lang), ("agree", api_agree),
@@ -1018,6 +1080,7 @@ async def start(bot=None):
     app.router.add_post("/api/admin/pack_del", api_admin_pack_del)
     if not config.CHILD:
         app.router.add_route("*","/b/{bid:\\d+}/{tail:.*}", child_proxy)
+        app.router.add_get("/b/{bid:\\d+}", child_slash)
     if config.CTOR_MODE:
         from ctor import web as ctor_web  # мини-приложение бота-конструктора: /c/app и /c/api/*
         ctor_web.setup(app)

@@ -202,10 +202,12 @@ async def show_product(call, pid, kind, lang):
     first = btn("buy", lang, f"buy:{pid}:{kind}") if in_stock(p) else btn("notify", lang, f"nt:{pid}")
     text = product_text(p, lang, u)
     _, n_rev = db.review_stats(pid)
+    can_rv = db.get_setting("reviews_off") != "1" and db.review_order_for(uid, pid)
     markup = kb([
         [first],
         [btn("fav_del" if fav else "fav_add", lang, f"fv:{pid}:{kind}"),
          raw_btn(f"{bt('rv_list', lang)} ({n_rev})", f"rvl:{pid}:{kind}:0") if n_rev else None],
+        [btn("rv_write", lang, f"rvw:{pid}:{kind}")] if can_rv else [],
         [btn("back", lang, f"l:{kind}:0"), btn("main_menu", lang, "menu")],
     ])
     photo = as_media(p["photo"], p["media_type"])  # карточка товара: фото, видео или GIF
